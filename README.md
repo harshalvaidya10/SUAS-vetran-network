@@ -96,7 +96,10 @@ available" actionable instead of a dead end.
 
 Hard filters run first: active and verified, offers rides, has an **open committed slot** that
 fully contains pickup through ride end, is inside both distance limits, and has no overlapping
-confirmed booking. Availability can never be traded for a better score. ZIP codes are mapped to
+confirmed booking. Availability can never be traded for a better score. The veteran sign-up page
+reads `distance` from `GET /api/v1/catalog` (the default service radius and
+`FAIRNESS_MAX_EXTRA_KM`) rather than hardcoding numbers, so the promise made at sign-up and the
+matcher's behaviour can't drift apart. ZIP codes are mapped to
 a small local centroid table and measured with Haversine distance; exact coordinates remain only
 as a compatibility fallback.
 
@@ -118,7 +121,7 @@ less work. Ties resolve by score, distance, workload, rating, earliest valid slo
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
 | `GET` | `/api/v1/catalog` | Service types, branches, match weights — so neither client hardcodes enums |
-| `POST` | `/api/v1/providers` | A veteran joins the network |
+| `POST` | `/api/v1/providers` | A veteran joins the network (give a `zipCode`; `base` is derived from its centroid) |
 | `GET` | `/api/v1/providers?serviceType=rides` | Public roster (no contact details) |
 | `GET` | `/api/v1/providers/:id` | Profile + open slots |
 | `PATCH` | `/api/v1/providers/:id` | Update bio, radius, offerings, pause with `active: false` |
@@ -177,8 +180,11 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
 4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-5. **Demo-only ZIP geography.** `backend/src/domain/zipGeo.ts` contains a small San Diego ZIP
-   centroid table. Unknown ZIPs return a clean validation error; no external geocoder is called.
+5. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for 80
+   San Diego County ZIPs, including the bases. Unknown ZIPs return a clean validation error; no
+   external geocoder is called. Precision is ZIP-level by design — a centroid is about as exact
+   as a veteran's home address should be to the matcher. Serving a second county means adding
+   rows, and a real geocoder means reimplementing `getZipCoordinates` and nothing else.
 6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
    it matters more now that the requester and the veteran are in different apps.
 7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.

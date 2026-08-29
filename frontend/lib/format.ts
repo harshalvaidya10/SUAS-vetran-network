@@ -36,3 +36,7 @@ export function toLocalInput(date: Date): string {
 export function fromLocalInput(value: string): string {
   return new Date(value).toISOString();
 }
+
+export const kmToMiles = (km: number) => km / 1.609344;
+
+export const formatMiles = (km: number) => `${Math.round(kmToMiles(km))} miles`;

@@ -19,6 +19,12 @@ export interface Catalog {
   serviceTypes: ServiceType[];
   branches: Branch[];
   matchWeights: Record<string, number>;
+  distance: {
+    /** How far from their ZIP a veteran gets matched. */
+    serviceRadiusKm: number;
+    /** Fairness only reorders drivers within this much of the closest one. */
+    fairnessMaxExtraKm: number;
+  };
 }
 
 export interface Offering {

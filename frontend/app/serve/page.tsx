@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { LocationPicker, PRESETS, type LocationValue } from '@/components/LocationPicker';
 import {
   ApiError,
   del,
@@ -18,7 +17,7 @@ import {
   type Provider,
   type Slot,
 } from '@/lib/api';
-import { BRANCH_LABELS, formatRange, fromLocalInput, toLocalInput } from '@/lib/format';
+import { BRANCH_LABELS, formatMiles, formatRange, fromLocalInput, toLocalInput } from '@/lib/format';
 
 const STORAGE_KEY = 'vetnet.providerId';
 
@@ -116,7 +115,7 @@ export default function ServePage() {
       <p className="lede" style={{ marginTop: 14 }}>
         {providerId
           ? 'You are only matched inside the blocks you commit to. Withdraw a block any time before someone claims it.'
-          : 'Tell us how far you will drive and on what terms. Then commit the blocks of time you can actually be there for.'}
+          : 'Tell us where you are and on what terms you drive. Then commit the blocks of time you can actually be there for.'}
       </p>
 
       {error ? (
@@ -146,9 +145,18 @@ export default function ServePage() {
                 <div>
                   <p className="eyebrow">Signed in as</p>
                   <h3>{provider?.name ?? 'this veteran'}</h3>
-                  <p className="mono muted" style={{ margin: '4px 0 0' }}>
-                    {providerId.slice(0, 8)}…
-                  </p>
+                  {provider?.servesFrom ? (
+                    <p className="mono muted" style={{ margin: '4px 0 0' }}>
+                      Matched from {provider.servesFrom}
+                      {catalog?.distance
+                        ? `, up to ${formatMiles(catalog.distance.serviceRadiusKm)} out`
+                        : ''}
+                    </p>
+                  ) : (
+                    <p className="mono muted" style={{ margin: '4px 0 0' }}>
+                      {providerId.slice(0, 8)}…
+                    </p>
+                  )}
                 </div>
                 <button type="button" className="ghost small" onClick={signOut}>
                   Switch account
@@ -295,9 +303,7 @@ function EnlistForm({
   const [bio, setBio] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [base, setBase] = useState<LocationValue>({ ...PRESETS[0]! });
-  const [zipCode, setZipCode] = useState('92101');
-  const [serviceRadiusKm, setServiceRadiusKm] = useState(30);
+  const [zip, setZip] = useState('');
   const [rateType, setRateType] = useState<Offering['rateType']>('volunteer');
   const [hourlyRateUsd, setHourlyRateUsd] = useState(0);
   const [pending, setPending] = useState(false);
@@ -306,6 +312,7 @@ function EnlistForm({
   // is derived rather than chosen. Reads from the catalog so a second service
   // later brings its own picker back rather than hardcoding an id here.
   const service = catalog?.serviceTypes[0] ?? null;
+  const distance = catalog?.distance ?? null;
   const offerings: Offering[] = service
     ? [{ serviceType: service.id, rateType, hourlyRateUsd: rateType === 'hourly' ? hourlyRateUsd : 0 }]
     : [];
@@ -320,9 +327,7 @@ function EnlistForm({
         bio,
         email,
         phone,
-        base: { lat: base.lat, lng: base.lng, address: base.address || undefined },
-        zipCode,
-        serviceRadiusKm,
+        zipCode: zip,
         offerings,
       });
       onEnlisted(provider);
@@ -394,29 +399,27 @@ function EnlistForm({
         />
       </label>
 
-      <LocationPicker label="Where you start from" value={base} onChange={setBase} />
-
-      <label className="field" style={{ maxWidth: 220 }}>
-        <span>Home ZIP (used for matching)</span>
-        <input
-          inputMode="numeric"
-          pattern="[0-9]{5}"
-          value={zipCode}
-          onChange={(event) => setZipCode(event.target.value)}
-          required
-        />
-      </label>
-
-      <label className="field" style={{ maxWidth: 220 }}>
-        <span>Willing to travel (km)</span>
-        <input
-          type="number"
-          min={1}
-          max={200}
-          value={serviceRadiusKm}
-          onChange={(e) => setServiceRadiusKm(Number(e.target.value))}
-        />
-      </label>
+      <div>
+        <label className="field" style={{ maxWidth: 200 }}>
+          <span>Your ZIP code</span>
+          <input
+            value={zip}
+            onChange={(e) => setZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+            inputMode="numeric"
+            pattern="\d{5}"
+            placeholder="92101"
+            required
+          />
+        </label>
+        <p className="small muted" style={{ margin: '8px 0 0' }}>
+          {distance
+            ? `We match riders with whoever is nearest them. Spreading the work only ever picks
+               between drivers within about ${formatMiles(distance.fairnessMaxExtraKm)} of each other,
+               so it never sends you further — and you will only be offered rides within about
+               ${formatMiles(distance.serviceRadiusKm)} of your ZIP. San Diego County for now.`
+            : 'We match you to rides near here — you don\u2019t need to work out a radius. San Diego County for now.'}
+        </p>
+      </div>
 
       <div>
         <p className="eyebrow" style={{ marginBottom: 10 }}>
@@ -464,7 +467,7 @@ function EnlistForm({
       </div>
 
       <div>
-        <button type="submit" disabled={pending || offerings.length === 0}>
+        <button type="submit" disabled={pending || offerings.length === 0 || zip.length !== 5}>
           {pending ? 'Enlisting…' : 'Join the network'}
         </button>
       </div>

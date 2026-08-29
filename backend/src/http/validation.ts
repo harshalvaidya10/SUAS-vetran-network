@@ -4,6 +4,9 @@ import { MILITARY_BRANCHES, SERVICE_TYPE_IDS } from '../domain/serviceCatalog.js
 
 const isoDateTime = z.string().datetime({ offset: true });
 
+/** Default reach for a veteran who signed up with just a ZIP. */
+export const DEFAULT_SERVICE_RADIUS_KM = 25;
+
 export const zipCodeSchema = z
   .string()
   .trim()
@@ -29,9 +32,14 @@ export const providerCreateSchema = z.object({
   bio: z.string().trim().max(500).default(''),
   email: z.string().email(),
   phone: z.string().trim().min(7).max(30),
-  base: placeSchema,
-  zipCode: zipCodeSchema.optional(),
-  serviceRadiusKm: z.number().min(1).max(200).default(25),
+  /**
+   * The only location we ask a veteran for. `base` is derived from its
+   * centroid — see the providers route — so the sign-up form never has to make
+   * someone read coordinates off a map.
+   */
+  zipCode: zipCodeSchema,
+  base: placeSchema.optional(),
+  serviceRadiusKm: z.number().min(1).max(200).default(DEFAULT_SERVICE_RADIUS_KM),
   offerings: z.array(offeringSchema).min(1, 'Pick at least one service you can provide'),
 });
 
