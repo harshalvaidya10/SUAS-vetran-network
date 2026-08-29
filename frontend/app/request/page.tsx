@@ -20,16 +20,20 @@ const REJECTION_LABELS: Record<string, string> = {
   rating_below_minimum: 'rated below your minimum',
   branch_mismatch: 'different branch',
   rate_too_high: 'above your rate limit',
-  out_of_range: 'too far away',
-  no_overlapping_slot: 'no committed slot in your window',
+  invalid_zip: 'location ZIP could not be mapped',
+  outside_search_radius: 'too far away',
+  no_open_slot: 'no open ride slot',
+  no_valid_availability: 'no slot covering pickup time',
+  ride_exceeds_slot: 'ride ends after availability',
+  overlapping_booking: 'already booked at that time',
 };
 
 export default function RequestPage() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [serviceType, setServiceType] = useState('rides');
   const [location, setLocation] = useState<LocationValue>({ ...PRESETS[0]! });
+  const [pickupZip, setPickupZip] = useState('92101');
   const [windowStart, setWindowStart] = useState('');
-  const [windowEnd, setWindowEnd] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [maxDistanceKm, setMaxDistanceKm] = useState(40);
   const [volunteerOnly, setVolunteerOnly] = useState(false);
@@ -38,6 +42,7 @@ export default function RequestPage() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [veteran, setVeteran] = useState(false);
   const [notes, setNotes] = useState('');
 
   const [pending, setPending] = useState(false);
@@ -53,8 +58,7 @@ export default function RequestPage() {
   useEffect(() => {
     newKey();
     const now = new Date();
-    setWindowStart(toLocalInput(now));
-    setWindowEnd(toLocalInput(new Date(now.getTime() + 7 * 24 * 3600 * 1000)));
+    setWindowStart(toLocalInput(new Date(now.getTime() + 60 * 60 * 1000)));
     getCatalog().then(setCatalog).catch(setError);
   }, []);
 
@@ -74,17 +78,21 @@ export default function RequestPage() {
     setPending(true);
     setError(null);
     try {
+      const startsAt = fromLocalInput(windowStart);
+      const endsAt = new Date(new Date(startsAt).getTime() + durationMinutes * 60_000).toISOString();
       const response = await post<MatchResponse>(
         '/api/v1/service-requests',
         {
           serviceType,
+          pickupZip,
           location: { lat: location.lat, lng: location.lng, address: location.address || undefined },
           requester: {
             name,
+            veteran,
             ...(phone ? { phone } : {}),
             ...(email ? { email } : {}),
           },
-          window: { startsAt: fromLocalInput(windowStart), endsAt: fromLocalInput(windowEnd) },
+          window: { startsAt, endsAt },
           durationMinutes,
           maxDistanceKm,
           preferences: {
@@ -161,32 +169,45 @@ export default function RequestPage() {
             }}
           />
 
-          <div className="row">
-            <label className="field">
-              <span>Free from</span>
-              <input
-                type="datetime-local"
-                value={windowStart}
-                onChange={(e) => {
-                  setWindowStart(e.target.value);
-                  newKey();
-                }}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Until</span>
-              <input
-                type="datetime-local"
-                value={windowEnd}
-                onChange={(e) => {
-                  setWindowEnd(e.target.value);
-                  newKey();
-                }}
-                required
-              />
-            </label>
-          </div>
+          <label className="field" style={{ maxWidth: 220 }}>
+            <span>Pickup ZIP</span>
+            <input
+              inputMode="numeric"
+              pattern="[0-9]{5}"
+              value={pickupZip}
+              onChange={(event) => {
+                setPickupZip(event.target.value);
+                newKey();
+              }}
+              required
+            />
+          </label>
+
+          <label className="field">
+            <span>Pickup time</span>
+            <input
+              type="datetime-local"
+              value={windowStart}
+              onChange={(e) => {
+                setWindowStart(e.target.value);
+                newKey();
+              }}
+              required
+            />
+          </label>
+
+          <label className="field checkbox">
+            <input
+              type="checkbox"
+              checked={veteran}
+              onChange={(event) => {
+                setVeteran(event.target.checked);
+                newKey();
+              }}
+              required
+            />
+            <span>I confirm that I am a veteran</span>
+          </label>
 
           <div className="row">
             <label className="field">
@@ -310,10 +331,9 @@ export default function RequestPage() {
             <div className="card">
               <p className="eyebrow">Nothing requested yet</p>
               <p className="muted small" style={{ margin: 0 }}>
-                Matches are ranked on six things: how close the veteran is, how they are rated, how
-                soon they can start, how recently they have been booked, their track record, and how
-                well the job fits the block of time they committed. The winning score is broken out
-                here so you can see why they came up first.
+                Availability is checked first and never traded away. Eligible drivers are ranked by
+                ZIP proximity, recent workload, and reliability; fairness can only reorder drivers
+                within about two miles of the closest option.
               </p>
             </div>
           ) : null}

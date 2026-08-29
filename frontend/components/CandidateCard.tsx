@@ -5,11 +5,8 @@ import { BRANCH_LABELS, formatCost, formatRange } from '@/lib/format';
 
 const COMPONENT_LABELS: Record<string, string> = {
   proximity: 'Proximity',
-  rating: 'Rating',
-  promptness: 'Starts soon',
-  workloadBalance: 'Spread work',
-  reliability: 'Track record',
-  slotFit: 'Slot fit',
+  workloadFairness: 'Fair workload',
+  reliability: 'Reliability',
 };
 
 /** The ranked shortlist entry, with the score broken out so the ranking is legible. */
@@ -59,6 +56,10 @@ export function CandidateCard({
         <div className="fact">
           <dt>Cost</dt>
           <dd>{formatCost(candidate.estimatedCostUsd, candidate.rateType)}</dd>
+        </div>
+        <div className="fact">
+          <dt>Recent rides</dt>
+          <dd>{candidate.recentRideCount} in 7 days</dd>
         </div>
         {provider.phone ? (
           <div className="fact">

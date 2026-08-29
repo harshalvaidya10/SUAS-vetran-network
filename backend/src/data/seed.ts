@@ -19,6 +19,7 @@ interface SeedProvider {
   email: string;
   phone: string;
   base: Place;
+  zipCode: string;
   serviceRadiusKm: number;
   offerings: ServiceOffering[];
   rating: number | null;
@@ -36,6 +37,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     email: 'marcus.hale@example.com',
     phone: '+1-619-555-0142',
     base: { lat: 32.7157, lng: -117.1611, address: 'Downtown, San Diego, CA' },
+    zipCode: '92101',
     serviceRadiusKm: 40,
     offerings: [
       { serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 },
@@ -57,6 +59,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     email: 'denise.okafor@example.com',
     phone: '+1-619-555-0177',
     base: { lat: 32.7677, lng: -117.2231, address: 'Point Loma, San Diego, CA' },
+    zipCode: '92106',
     serviceRadiusKm: 25,
     offerings: [
       { serviceType: 'benefits_navigation', rateType: 'volunteer', hourlyRateUsd: 0 },
@@ -77,6 +80,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     email: 'ray.whitlock@example.com',
     phone: '+1-619-555-0193',
     base: { lat: 32.8328, lng: -116.9625, address: 'El Cajon, CA' },
+    zipCode: '92020',
     serviceRadiusKm: 35,
     offerings: [
       { serviceType: 'home_repair', rateType: 'hourly', hourlyRateUsd: 55 },
@@ -99,6 +103,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     email: 'priya.raman@example.com',
     phone: '+1-858-555-0110',
     base: { lat: 32.8801, lng: -117.2340, address: 'La Jolla, San Diego, CA' },
+    zipCode: '92037',
     serviceRadiusKm: 20,
     offerings: [
       { serviceType: 'tech_support', rateType: 'volunteer', hourlyRateUsd: 0 },
@@ -120,6 +125,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     email: 'tom.bierman@example.com',
     phone: '+1-760-555-0164',
     base: { lat: 33.1959, lng: -117.3795, address: 'Oceanside, CA' },
+    zipCode: '92054',
     serviceRadiusKm: 50,
     offerings: [
       { serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 },
@@ -149,6 +155,7 @@ export function seedDemoData(): { providers: number; slots: number } {
       email: seed.email,
       phone: seed.phone,
       base: seed.base,
+      zipCode: seed.zipCode,
       serviceRadiusKm: seed.serviceRadiusKm,
       offerings: seed.offerings,
       rating: seed.rating,
