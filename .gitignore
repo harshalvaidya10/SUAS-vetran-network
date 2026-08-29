@@ -6,3 +6,7 @@ dist/
 *.log
 .DS_Store
 *.tsbuildinfo
+.data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

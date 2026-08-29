@@ -14,7 +14,7 @@ async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
-    store.reset();
+    await store.reset();
   }
 }
 
@@ -58,12 +58,12 @@ test('route validates pickup ZIP cleanly', async () => {
 
 test('idempotency and synchronous slot claiming prevent double booking', async () => {
   await withServer(async (baseUrl) => {
-    store.reset();
+    await store.reset();
     const startsAt = new Date(Date.now() + 2 * 3_600_000);
     startsAt.setMilliseconds(0);
     const rideEndsAt = new Date(startsAt.getTime() + 3_600_000);
     const slotEndsAt = new Date(startsAt.getTime() + 2 * 3_600_000);
-    const provider = store.createProvider({
+    const provider = await store.createProvider({
       name: 'Driver One',
       branch: 'army',
       yearsOfService: 8,
@@ -79,7 +79,7 @@ test('idempotency and synchronous slot claiming prevent double booking', async (
       verified: true,
       active: true,
     });
-    const slot = store.createSlot({
+    const slot = await store.createSlot({
       providerId: provider.id,
       startsAt: new Date(startsAt.getTime() - 3_600_000).toISOString(),
       endsAt: slotEndsAt.toISOString(),
@@ -104,14 +104,14 @@ test('idempotency and synchronous slot claiming prevent double booking', async (
     const replayPayload = (await replay.json()) as { replayed: boolean; booking: { id: string } };
     assert.equal(replayPayload.replayed, true);
     assert.equal(replayPayload.booking.id, firstPayload.booking.id);
-    assert.equal(store.listBookings().length, 1);
-    assert.equal(store.getSlot(slot.id)?.status, 'booked');
+    assert.equal((await store.listBookings()).length, 1);
+    assert.equal((await store.getSlot(slot.id))?.status, 'booked');
 
     const competing = await send('different-request');
     const competingPayload = (await competing.json()) as { status: string; booking: unknown };
     assert.equal(competing.status, 200);
     assert.equal(competingPayload.status, 'no_match');
     assert.equal(competingPayload.booking, null);
-    assert.equal(store.listBookings().length, 1);
+    assert.equal((await store.listBookings()).length, 1);
   });
 });

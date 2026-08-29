@@ -12,7 +12,7 @@ union and the per-slot service filter all survive — a second service is one en
 This repo is the **supply side and the brain**:
 
 - `backend/` — Express 5 + TypeScript API: the roster, the commitments, and the matching
-  engine (in-memory store, no database yet)
+  engine backed by SQLite locally and PostgreSQL in production
 - `frontend/` — Next.js 16 App Router site for **onboarding veteran drivers**: sign up, commit
   blocks, manage the rides that land on them
 
@@ -25,8 +25,34 @@ whole integration surface.
 
 ```bash
 npm run install:all   # installs backend + frontend deps
+cp backend/.env.example backend/.env
 npm run dev           # API on :4000, web on :3000
 ```
+
+Local development uses SQLite automatically. Veteran signups persist in
+`backend/.data/vetnet.sqlite`, so there is no database service to start and `npm run dev` is
+the only startup command. Demo veterans are inserted only when the database is empty.
+
+For Vercel, provision Neon and set `DATABASE_URL` to its PostgreSQL connection string. The API
+then switches to PostgreSQL and creates the same schema automatically on startup. The Docker
+Compose setup remains available for developers who want a local PostgreSQL instance.
+
+### Vercel + Neon checklist
+
+1. In the Vercel backend project, open **Storage**, install **Neon**, and connect the database
+   to both Preview and Production. Use the pooled connection string (its hostname contains
+   `-pooler`); the Marketplace integration normally supplies this as `DATABASE_URL`.
+2. Set `SEED_DEMO_DATA=0` in Production. This is already the Vercel default in code; set it
+   explicitly if you want the dashboard to document the choice. A hackathon Preview can use
+   `SEED_DEMO_DATA=1` to load the five demo drivers into an empty database.
+3. Set `CORS_ORIGINS` to the deployed frontend URL and set the frontend project’s
+   `NEXT_PUBLIC_API_URL` to the deployed backend URL.
+4. Redeploy the backend after connecting Neon, then request `/health`. A correct deployment
+   returns `{ "status": "ok", "database": "postgres" }`. Vercel deliberately refuses to
+   start without a persistent database instead of silently writing to temporary SQLite.
+
+The PostgreSQL schema and unique normalized-phone constraint are applied idempotently during
+backend cold start, so a brand-new Neon database requires no separate local `psql` command.
 
 Or one at a time: `npm run dev:api` / `npm run dev:web`.
 
@@ -158,9 +184,8 @@ to find someone" — and it's why booking consumes the whole block rather than s
 rating and bio; phone and email only travel with a confirmed booking, so the roster can't be
 scraped by anyone who can POST a search.
 
-**Data lives in `backend/src/data/store.ts` and nowhere else.** Everything goes through that
-one object, so moving to Postgres means reimplementing that file (and making the methods
-async), not touching the routes.
+**Data access lives in `backend/src/data/store.ts`.** With `DATABASE_URL` configured it uses
+PostgreSQL; without it, local development uses SQLite. Tests use an isolated in-memory store.
 
 **The matcher is a pure function.** `findMatches(criteria, context)` does no I/O, which is why
 the ranking rules are covered by fast unit tests.
@@ -176,20 +201,18 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
    one middleware.
 2. **No veteran auth either.** Anyone who knows a provider id can edit that profile or cancel
    its bookings. The veteran identity is kept in `localStorage`. Needs real accounts + sessions.
-3. **No persistence.** Restarting the API wipes everyone. In-memory only.
-4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
+3. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-5. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for 80
+4. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for 80
    San Diego County ZIPs, including the bases. Unknown ZIPs return a clean validation error; no
    external geocoder is called. Precision is ZIP-level by design — a centroid is about as exact
    as a veteran's home address should be to the matcher. Serving a second county means adding
    rows, and a real geocoder means reimplementing `getZipCoordinates` and nothing else.
-6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
+5. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
    it matters more now that the requester and the veteran are in different apps.
-7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
-8. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
-   `Idempotency-Key`, which holds for one process but not for a horizontally scaled API. A real
-   deployment needs a transactional claim on the slot row.
-9. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
+6. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
+7. **Booking is not fully transactional.** PostgreSQL atomically claims a slot, but the slot
+   claim, request creation and booking creation should become one transaction before scaling.
+8. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
    collects it after a completed job yet.

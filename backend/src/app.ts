@@ -2,11 +2,13 @@ import cors from 'cors';
 import express, { type Express } from 'express';
 import { config } from './config.js';
 import { seedDemoData } from './data/seed.js';
+import { checkStoreConnection, databaseKind, initializeStore, store } from './data/store.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { bookingsRouter } from './routes/bookings.js';
 import { catalogRouter } from './routes/catalog.js';
 import { providersRouter } from './routes/providers.js';
 import { serviceRequestsRouter } from './routes/serviceRequests.js';
+import { authRouter } from './routes/auth.js';
 
 export function createApp(): Express {
   const app = express();
@@ -22,11 +24,17 @@ export function createApp(): Express {
     next();
   });
 
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) });
+  app.get('/health', async (_req, res) => {
+    await checkStoreConnection();
+    res.json({
+      status: 'ok',
+      database: databaseKind,
+      uptimeSeconds: Math.round(process.uptime()),
+    });
   });
 
   app.use('/api/v1/catalog', catalogRouter);
+  app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/providers', providersRouter);
   app.use('/api/v1/service-requests', serviceRequestsRouter);
   app.use('/api/v1/bookings', bookingsRouter);
@@ -40,8 +48,9 @@ export function createApp(): Express {
 // Module initialization runs once per warm Node.js process. This makes demo
 // data available whether Vercel loads app.ts or index.ts, without reseeding on
 // every request.
-if (config.seedDemoData) {
-  const { providers, slots } = seedDemoData();
+await initializeStore();
+if (config.seedDemoData && (await store.listProviders()).length === 0) {
+  const { providers, slots } = await seedDemoData();
   console.log(`Seeded ${providers} demo veterans with ${slots} committed slots.`);
 }
 

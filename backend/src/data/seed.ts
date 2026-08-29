@@ -125,12 +125,12 @@ const SEED_PROVIDERS: SeedProvider[] = [
   },
 ];
 
-/** Loads demo veterans and their committed slots into the in-memory store. */
-export function seedDemoData(): { providers: number; slots: number } {
+/** Loads demo veterans and their committed slots into an empty store. */
+export async function seedDemoData(): Promise<{ providers: number; slots: number }> {
   let slotCount = 0;
 
   for (const seed of SEED_PROVIDERS) {
-    const provider = store.createProvider({
+    const provider = await store.createProvider({
       name: seed.name,
       branch: seed.branch,
       yearsOfService: seed.yearsOfService,
@@ -151,7 +151,7 @@ export function seedDemoData(): { providers: number; slots: number } {
       const startsAt = at(slot.day, slot.from);
       // Skip demo slots that already ended today.
       if (startsAt.getTime() < Date.now()) continue;
-      store.createSlot({
+      await store.createSlot({
         providerId: provider.id,
         startsAt: startsAt.toISOString(),
         endsAt: at(slot.day, slot.to).toISOString(),

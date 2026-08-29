@@ -18,7 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               VetNet
             </Link>
             <nav>
-              <Link href="/serve">Sign up to serve</Link>
+              <Link href="/serve?new=1">Sign up to serve</Link>
+              <Link href="/serve">My commitments</Link>
             </nav>
           </div>
         </header>

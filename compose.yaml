@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vetnet
+      POSTGRES_USER: vetnet
+      POSTGRES_PASSWORD: vetnet
+    ports: ["5432:5432"]
+    volumes:
+      - vetnet_postgres:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vetnet -d vetnet"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+volumes:
+  vetnet_postgres:

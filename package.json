@@ -8,6 +8,9 @@
     "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "dev:api": "npm run dev --prefix backend",
     "dev:web": "npm run dev --prefix frontend",
+    "db:up": "docker compose up -d postgres",
+    "db:logs": "docker compose logs -f postgres",
+    "db:down": "docker compose down",
     "build": "npm run build --prefix backend && npm run build --prefix frontend",
     "test": "npm test --prefix backend"
   },

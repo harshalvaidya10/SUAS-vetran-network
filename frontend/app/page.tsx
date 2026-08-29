@@ -43,7 +43,7 @@ export default async function HomePage() {
         </p>
 
         <div className="row" style={{ marginTop: 30, alignItems: 'center', gap: 18 }}>
-          <Link href="/serve" className="cta">
+          <Link href="/serve?new=1" className="cta">
             Sign up to serve →
           </Link>
           <span className="mono muted">
@@ -130,7 +130,7 @@ export default async function HomePage() {
                   <p className="eyebrow">Who is already on</p>
                   <h2>{providers.length} veterans taking work in San Diego County</h2>
                 </div>
-                <Link href="/serve" className="mono">
+                <Link href="/serve?new=1" className="mono">
                   Add your name →
                 </Link>
               </div>

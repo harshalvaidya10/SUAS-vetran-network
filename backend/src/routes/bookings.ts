@@ -6,10 +6,10 @@ import { bookingUpdateSchema, parse } from '../http/validation.js';
 
 export const bookingsRouter: Router = Router();
 
-bookingsRouter.get('/:id', (req, res) => {
-  const booking = store.getBooking(String(req.params.id));
+bookingsRouter.get('/:id', async (req, res) => {
+  const booking = await store.getBooking(String(req.params.id));
   if (!booking) throw ApiError.notFound('No such booking.');
-  res.json({ booking: serializeBooking(booking, store.getProvider(booking.providerId)) });
+  res.json({ booking: serializeBooking(booking, await store.getProvider(booking.providerId)) });
 });
 
 /**
@@ -17,27 +17,27 @@ bookingsRouter.get('/:id', (req, res) => {
  * job is what grows a veteran's track record; cancelling releases the slot back
  * to the network so someone else can use it.
  */
-bookingsRouter.patch('/:id', (req, res) => {
-  const booking = store.getBooking(String(req.params.id));
+bookingsRouter.patch('/:id', async (req, res) => {
+  const booking = await store.getBooking(String(req.params.id));
   if (!booking) throw ApiError.notFound('No such booking.');
   if (booking.status !== 'confirmed') {
     throw ApiError.conflict(`This booking is already ${booking.status}.`);
   }
 
   const { status } = parse(bookingUpdateSchema, req.body);
-  const updated = store.updateBooking(booking.id, { status })!;
+  const updated = (await store.updateBooking(booking.id, { status }))!;
 
   if (status === 'completed') {
-    const provider = store.getProvider(booking.providerId);
+    const provider = await store.getProvider(booking.providerId);
     if (provider) {
-      store.updateProvider(provider.id, { completedJobs: provider.completedJobs + 1 });
+      await store.updateProvider(provider.id, { completedJobs: provider.completedJobs + 1 });
     }
   } else {
-    const slot = store.getSlot(booking.slotId);
+    const slot = await store.getSlot(booking.slotId);
     if (slot && slot.status === 'booked' && new Date(slot.endsAt).getTime() > Date.now()) {
-      store.updateSlot(slot.id, { status: 'open' });
+      await store.updateSlot(slot.id, { status: 'open' });
     }
   }
 
-  res.json({ booking: serializeBooking(updated, store.getProvider(updated.providerId)) });
+  res.json({ booking: serializeBooking(updated, await store.getProvider(updated.providerId)) });
 });
