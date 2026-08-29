@@ -296,6 +296,7 @@ function EnlistForm({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [base, setBase] = useState<LocationValue>({ ...PRESETS[0]! });
+  const [zipCode, setZipCode] = useState('92101');
   const [serviceRadiusKm, setServiceRadiusKm] = useState(30);
   const [rateType, setRateType] = useState<Offering['rateType']>('volunteer');
   const [hourlyRateUsd, setHourlyRateUsd] = useState(0);
@@ -320,6 +321,7 @@ function EnlistForm({
         email,
         phone,
         base: { lat: base.lat, lng: base.lng, address: base.address || undefined },
+        zipCode,
         serviceRadiusKm,
         offerings,
       });
@@ -393,6 +395,17 @@ function EnlistForm({
       </label>
 
       <LocationPicker label="Where you start from" value={base} onChange={setBase} />
+
+      <label className="field" style={{ maxWidth: 220 }}>
+        <span>Home ZIP (used for matching)</span>
+        <input
+          inputMode="numeric"
+          pattern="[0-9]{5}"
+          value={zipCode}
+          onChange={(event) => setZipCode(event.target.value)}
+          required
+        />
+      </label>
 
       <label className="field" style={{ maxWidth: 220 }}>
         <span>Willing to travel (km)</span>

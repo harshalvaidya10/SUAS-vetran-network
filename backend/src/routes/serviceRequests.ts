@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { store } from '../data/store.js';
 import { countRecentBookings, findMatches, type MatchCriteria } from '../domain/matching.js';
 import { getServiceType } from '../domain/serviceCatalog.js';
+import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
 import { ApiError } from '../http/errors.js';
 import { parse, serviceRequestSchema } from '../http/validation.js';
 import { serializeBooking, serializeCandidate } from '../http/serialize.js';
@@ -38,6 +39,15 @@ serviceRequestsRouter.post('/', (req, res) => {
 
   const input = parse(serviceRequestSchema, req.body);
   const now = new Date();
+  const pickupZip = normalizeZipCode(input.pickupZip);
+  const pickupCoordinates = getZipCoordinates(pickupZip);
+  if (!pickupCoordinates) {
+    throw ApiError.badRequest(
+      `ZIP code ${pickupZip} is not in the demo geography yet. Try a supported San Diego ZIP.`,
+      [{ field: 'pickupZip', message: 'Unknown ZIP code' }],
+    );
+  }
+  const location = { ...(input.location ?? pickupCoordinates), zipCode: pickupZip };
 
   const windowStartsAt = input.window?.startsAt ? new Date(input.window.startsAt) : now;
   const windowEndsAt = input.window?.endsAt
@@ -46,6 +56,12 @@ serviceRequestsRouter.post('/', (req, res) => {
 
   if (windowEndsAt <= windowStartsAt) {
     throw ApiError.badRequest('window.endsAt must be after window.startsAt');
+  }
+
+  if (windowStartsAt.getTime() < now.getTime()) {
+    throw ApiError.badRequest('The requested pickup time cannot be in the past.', [
+      { field: 'window.startsAt', message: 'Choose a future pickup time' },
+    ]);
   }
 
   const durationMinutes =
@@ -59,7 +75,8 @@ serviceRequestsRouter.post('/', (req, res) => {
 
   const criteria: MatchCriteria = {
     serviceType: input.serviceType,
-    location: input.location,
+    pickupZip,
+    location,
     windowStartsAt: windowStartsAt.toISOString(),
     windowEndsAt: windowEndsAt.toISOString(),
     durationMinutes,
@@ -79,7 +96,8 @@ serviceRequestsRouter.post('/', (req, res) => {
   const providers = store.listProviders();
   const result = findMatches(criteria, {
     providers,
-    slots: store.listSlots({ status: 'open' }),
+    slots: store.listSlots(),
+    bookings: store.listBookings(),
     recentBookingCounts: countRecentBookings(store.listBookings(), now),
     now,
   });
@@ -94,7 +112,8 @@ serviceRequestsRouter.post('/', (req, res) => {
     const record = store.createRequest({
       serviceType: input.serviceType,
       requester: input.requester,
-      location: input.location,
+      location,
+      pickupZip,
       windowStartsAt: criteria.windowStartsAt,
       windowEndsAt: criteria.windowEndsAt,
       durationMinutes,
@@ -121,7 +140,8 @@ serviceRequestsRouter.post('/', (req, res) => {
     const record = store.createRequest({
       serviceType: input.serviceType,
       requester: input.requester,
-      location: input.location,
+      location,
+      pickupZip,
       windowStartsAt: criteria.windowStartsAt,
       windowEndsAt: criteria.windowEndsAt,
       durationMinutes,
@@ -141,18 +161,41 @@ serviceRequestsRouter.post('/', (req, res) => {
     return;
   }
 
-  // Re-read the slot before claiming it: another request may have taken it
-  // between the match pass and now.
-  const slot = store.getSlot(best!.slot.id);
-  if (!slot || slot.status !== 'open') {
-    throw ApiError.conflict('That veteran was just booked. Retry the request for a new match.');
+  // Re-run every hard filter against current state, then claim synchronously.
+  // If the top driver changed state, try the next ranked alternative.
+  let chosen = best;
+  let chosenIndex = -1;
+  let slot: ReturnType<typeof store.getSlot>;
+  for (const [index, candidate] of result.candidates.entries()) {
+    const currentNow = new Date();
+    const currentBookings = store.listBookings();
+    const revalidated = findMatches(
+      { ...criteria, providerId: candidate.provider.id, limit: 1 },
+      {
+        providers: store.listProviders(),
+        slots: store.listSlots(),
+        bookings: currentBookings,
+        recentBookingCounts: countRecentBookings(currentBookings, currentNow),
+        now: currentNow,
+      },
+    ).candidates[0];
+    if (!revalidated || revalidated.slot.id !== candidate.slot.id) continue;
+    const claimed = store.claimOpenSlot(revalidated.slot.id);
+    if (!claimed) continue;
+    chosen = revalidated;
+    chosenIndex = index;
+    slot = claimed;
+    break;
   }
-  store.updateSlot(slot.id, { status: 'booked' });
+  if (!chosen || !slot) {
+    throw ApiError.conflict('Driver availability changed before booking. Retry for a fresh match.');
+  }
 
   const record = store.createRequest({
     serviceType: input.serviceType,
     requester: input.requester,
-    location: input.location,
+    location,
+    pickupZip,
     windowStartsAt: criteria.windowStartsAt,
     windowEndsAt: criteria.windowEndsAt,
     durationMinutes,
@@ -163,15 +206,15 @@ serviceRequestsRouter.post('/', (req, res) => {
   const booking = store.createBooking({
     requestId: record.id,
     slotId: slot.id,
-    providerId: best!.provider.id,
+    providerId: chosen.provider.id,
     serviceType: input.serviceType,
     requester: input.requester,
-    location: input.location,
-    startsAt: best!.startsAt,
-    endsAt: best!.endsAt,
+    location,
+    startsAt: chosen.startsAt,
+    endsAt: chosen.endsAt,
     status: 'confirmed',
-    estimatedCostUsd: best!.estimatedCostUsd,
-    matchScore: best!.score,
+    estimatedCostUsd: chosen.estimatedCostUsd,
+    matchScore: chosen.score,
     ...(input.notes ? { notes: input.notes } : {}),
   });
 
@@ -181,9 +224,9 @@ serviceRequestsRouter.post('/', (req, res) => {
   res.status(201).json({
     requestId: record.id,
     status: 'matched',
-    booking: serializeBooking(booking, best!.provider),
-    match: serializeCandidate(best!),
-    alternatives: rest.map(serializeCandidate),
+    booking: serializeBooking(booking, chosen.provider),
+    match: serializeCandidate(chosen),
+    alternatives: result.candidates.slice(chosenIndex + 1).map(serializeCandidate),
     diagnostics,
   });
 });
@@ -207,8 +250,12 @@ serviceRequestsRouter.get('/:id', (req, res) => {
  * something else for a living".
  */
 const ADVICE_PRECEDENCE = [
-  'no_overlapping_slot',
-  'out_of_range',
+  'ride_exceeds_slot',
+  'no_valid_availability',
+  'no_open_slot',
+  'overlapping_booking',
+  'outside_search_radius',
+  'invalid_zip',
   'rating_below_minimum',
   'branch_mismatch',
   'rate_too_high',
@@ -220,10 +267,18 @@ function noMatchAdvice(rejections: Record<string, number>): string {
   const top = ADVICE_PRECEDENCE.find((reason) => (rejections[reason] ?? 0) > 0);
 
   switch (top) {
-    case 'no_overlapping_slot':
-      return 'Veterans nearby offer this, but nobody has committed to a slot in your window. Try widening the time range.';
-    case 'out_of_range':
+    case 'ride_exceeds_slot':
+      return 'A driver is available at pickup time, but the ride would end after their committed availability block.';
+    case 'no_valid_availability':
+      return 'No verified veteran driver has an availability block that fully covers the requested ride.';
+    case 'no_open_slot':
+      return 'Drivers offer rides, but none has an open availability block for that pickup time.';
+    case 'overlapping_booking':
+      return 'Nearby drivers are already committed to another ride at that time.';
+    case 'outside_search_radius':
       return 'The veterans who offer this are outside your distance limit. Try searching a wider radius.';
+    case 'invalid_zip':
+      return 'A driver location could not be mapped safely. Try another pickup ZIP.';
     case 'service_not_offered':
       return 'No one on the network offers this service yet.';
     case 'rating_below_minimum':

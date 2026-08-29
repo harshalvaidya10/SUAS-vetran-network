@@ -1,8 +1,8 @@
 # VetNet
 
-An on-demand service network for the veteran community. Veterans sign up and **commit to
-blocks of time**; a request arrives as **one API call** that searches the roster, intersects it
-with committed availability, ranks the matches and books the best one.
+An on-demand ride network for the veteran community. Veteran drivers **commit availability
+blocks**; a veteran rider makes **one API call** that checks exact ride coverage, ZIP proximity,
+and fair workload distribution before booking one driver.
 
 **MVP scope: driving only.** The catalog is a single service (`rides`), so the whole product
 is "a veteran needs a ride, another veteran drives them". The `serviceType` field, its type
@@ -38,7 +38,7 @@ Config: copy `backend/.env.example` → `backend/.env` and `frontend/.env.local.
 `frontend/.env.local` if you need to change ports or origins.
 
 ```bash
-npm test                        # matching-engine unit tests (10)
+npm test                        # matching-engine and route tests
 npm run build                   # tsc for the API, next build for the web app
 ```
 
@@ -57,9 +57,10 @@ Idempotency-Key: <uuid>        # optional; a replay returns the original result
 ```jsonc
 {
   "serviceType": "rides",                              // required
-  "location": { "lat": 32.7157, "lng": -117.1611, "address": "Downtown San Diego" },
-  "requester": { "name": "Alice Nguyen", "phone": "+1-619-555-0999" },  // email or phone
-  "window": { "startsAt": "...", "endsAt": "..." },    // default: now → +7 days
+  "pickupZip": "92101",                               // required demo ZIP
+  "location": { "lat": 32.7157, "lng": -117.1611, "address": "Downtown San Diego" }, // optional display detail
+  "requester": { "name": "Alice Nguyen", "veteran": true, "phone": "+1-619-555-0999" },
+  "window": { "startsAt": "...", "endsAt": "..." },    // startsAt is the exact pickup time
   "durationMinutes": 90,                               // default: per service type
   "maxDistanceKm": 40,
   "preferences": {
@@ -87,28 +88,29 @@ Idempotency-Key: <uuid>        # optional; a replay returns the original result
 }
 ```
 
-`diagnostics.rejections` counts why each veteran dropped out — `out_of_range`,
-`no_overlapping_slot`, `service_not_offered`, and so on. That is what makes "nobody is
+`diagnostics.rejections` counts why each veteran dropped out — `outside_search_radius`,
+`ride_exceeds_slot`, `overlapping_booking`, and so on. That is what makes "nobody is
 available" actionable instead of a dead end.
 
 ### How the ranking works
 
-Hard filters first: verified and active, offers the service, inside both the requester's
-distance cap and the veteran's own travel radius, and holding an **open committed slot** long
-enough for the job inside the requested window. Survivors are scored 0–100 on six weighted
-components (`src/domain/matching.ts`, returned in `scoreBreakdown` so the UI can show its work):
+Hard filters run first: active and verified, offers rides, has an **open committed slot** that
+fully contains pickup through ride end, is inside both distance limits, and has no overlapping
+confirmed booking. Availability can never be traded for a better score. ZIP codes are mapped to
+a small local centroid table and measured with Haversine distance; exact coordinates remain only
+as a compatibility fallback.
+
+Eligible drivers are scored 0–100 on three explainable components:
 
 | Component | Weight | What it rewards |
 | --- | --- | --- |
-| `proximity` | 0.30 | Closer to the requester |
-| `rating` | 0.20 | Community rating (unrated veterans are treated as 4.5) |
-| `promptness` | 0.15 | Can start sooner in the window |
-| `workloadBalance` | 0.15 | Hasn't been booked much in the last 7 days |
-| `reliability` | 0.10 | Completed-job track record |
-| `slotFit` | 0.10 | Job fills the block, so long slots stay free for long jobs |
+| `proximity` | 0.65 | Closer ZIP centroid to pickup |
+| `workloadFairness` | 0.25 | Fewer confirmed/completed rides assigned in the trailing 7 days |
+| `reliability` | 0.10 | Rating, with unrated drivers treated as 4.5 |
 
-`workloadBalance` is deliberate: a community network that always routes to the same three
-people burns them out. Change the weights in one place and every match moves with them.
+Fairness may reorder only drivers within 3.2 km (about two miles) of the closest eligible driver.
+Drivers outside that competition set remain alternatives but cannot win purely because they have
+less work. Ties resolve by score, distance, workload, rating, earliest valid slot, then driver ID.
 
 ## The rest of the API
 
@@ -136,8 +138,9 @@ the offending fields.
 ```bash
 curl -s localhost:4000/api/v1/service-requests -H 'Content-Type: application/json' -d '{
   "serviceType": "rides",
+  "pickupZip": "92101",
   "location": { "lat": 32.7157, "lng": -117.1611 },
-  "requester": { "name": "Alice", "phone": "+1-619-555-0999" },
+  "requester": { "name": "Alice", "veteran": true, "phone": "+1-619-555-0999" },
   "durationMinutes": 90
 }' | jq '{status, who: .match.provider.name, score: .match.score, when: .booking.startsAt}'
 ```
@@ -174,9 +177,8 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
 4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-5. **No geocoding.** The veteran site offers preset San Diego coordinates plus manual lat/lng.
-   Swapping in a geocoder touches only `frontend/components/LocationPicker.tsx`. The request
-   app will need its own answer for this — device location is the obvious one.
+5. **Demo-only ZIP geography.** `backend/src/domain/zipGeo.ts` contains a small San Diego ZIP
+   centroid table. Unknown ZIPs return a clean validation error; no external geocoder is called.
 6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
    it matters more now that the requester and the veteran are in different apps.
 7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.

@@ -2,13 +2,17 @@ import { z } from 'zod';
 import { ApiError } from './errors.js';
 import { MILITARY_BRANCHES, SERVICE_TYPE_IDS } from '../domain/serviceCatalog.js';
 
-const isoDateTime = z
+const isoDateTime = z.string().datetime({ offset: true });
+
+export const zipCodeSchema = z
   .string()
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), 'Must be an ISO-8601 date-time');
+  .trim()
+  .regex(/^\d{5}(?:-\d{4})?$/, 'Must be a 5-digit US ZIP code');
 
 export const placeSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  zipCode: zipCodeSchema.optional(),
   address: z.string().trim().min(1).max(200).optional(),
 });
 
@@ -26,6 +30,7 @@ export const providerCreateSchema = z.object({
   email: z.string().email(),
   phone: z.string().trim().min(7).max(30),
   base: placeSchema,
+  zipCode: zipCodeSchema.optional(),
   serviceRadiusKm: z.number().min(1).max(200).default(25),
   offerings: z.array(offeringSchema).min(1, 'Pick at least one service you can provide'),
 });
@@ -35,6 +40,7 @@ export const providerUpdateSchema = z
     active: z.boolean(),
     bio: z.string().trim().max(500),
     serviceRadiusKm: z.number().min(1).max(200),
+    zipCode: zipCodeSchema,
     offerings: z.array(offeringSchema).min(1),
   })
   .partial();
@@ -55,6 +61,7 @@ export const slotCreateSchema = z
 const requesterSchema = z
   .object({
     name: z.string().trim().min(2).max(80),
+    veteran: z.literal(true, { errorMap: () => ({ message: 'Rides are currently for veterans' }) }),
     email: z.string().email().optional(),
     phone: z.string().trim().min(7).max(30).optional(),
   })
@@ -69,7 +76,9 @@ const requesterSchema = z
  */
 export const serviceRequestSchema = z.object({
   serviceType: z.enum(SERVICE_TYPE_IDS),
-  location: placeSchema,
+  pickupZip: zipCodeSchema,
+  /** Optional compatibility/display detail; matching uses pickupZip. */
+  location: placeSchema.optional(),
   requester: requesterSchema,
   /** Defaults to "from now until 7 days out". */
   window: z
