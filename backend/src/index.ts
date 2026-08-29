@@ -7,7 +7,8 @@ if (config.seedDemoData) {
   console.log(`Seeded ${providers} demo veterans with ${slots} committed slots.`);
 }
 
-createApp().listen(config.port, () => {
-  console.log(`VetNet API listening on http://localhost:${config.port}`);
-  console.log(`CORS origins: ${config.corsOrigins.join(', ')}`);
-});
+/**
+ * Vercel detects this default export and wraps the Express app in one Function.
+ * Do not listen on a port here; src/local.ts owns the traditional local server.
+ */
+export default createApp();
