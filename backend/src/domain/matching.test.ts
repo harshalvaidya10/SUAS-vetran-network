@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countRecentBookings, findMatches, type MatchCriteria, type MatchContext } from './matching.js';
+import {
+  countRecentBookings,
+  findMatches,
+  findMatchesTiered,
+  type MatchCriteria,
+  type MatchContext,
+} from './matching.js';
+import { MAX_PICKUP_KM, milesToKm } from './distancePolicy.js';
 import type { AvailabilitySlot, Provider } from '../types.js';
 
 const NOW = new Date('2026-03-02T08:00:00.000Z');
@@ -15,8 +22,9 @@ function provider(overrides: Partial<Provider> = {}): Provider {
     bio: '',
     email: 'v@example.com',
     phone: '+1-619-555-0100',
+    zip: '92101',
     base: DOWNTOWN,
-    serviceRadiusKm: 40,
+    serviceRadiusKm: MAX_PICKUP_KM,
     offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
     rating: 4.5,
     completedJobs: 10,
@@ -185,4 +193,68 @@ test('countRecentBookings ignores cancelled and stale bookings', () => {
   );
 
   assert.equal(counts.get('p1'), 1);
+});
+
+// --- closest-first tiering -------------------------------------------------
+
+/** ~`miles` due east of downtown, which is close enough for these tests. */
+function milesEast(miles: number) {
+  return { lat: DOWNTOWN.lat, lng: DOWNTOWN.lng + (miles * 1.609344) / 93.5 };
+}
+
+const wideCriteria: MatchCriteria = { ...criteria, maxDistanceKm: MAX_PICKUP_KM };
+
+test('takes the nearby veteran over a better-rated one far away', () => {
+  // Left to a single flat search, the 25-mile driver wins on rating and track
+  // record. Tiering means we never look that far while someone is 4 miles out.
+  const near = provider({ id: 'near', base: milesEast(4), rating: 3.4, completedJobs: 0 });
+  const far = provider({ id: 'far', base: milesEast(25), rating: 5, completedJobs: 40 });
+  const context_ = context({
+    providers: [near, far],
+    slots: [slot({ id: 'sn', providerId: 'near' }), slot({ id: 'sf', providerId: 'far' })],
+  });
+
+  const flat = findMatches(wideCriteria, context_);
+  assert.equal(flat.candidates[0]!.provider.id, 'far', 'a single wide search prefers the ratings');
+
+  const tiered = findMatchesTiered(wideCriteria, context_);
+  assert.equal(tiered.candidates[0]!.provider.id, 'near');
+  assert.equal(tiered.searchRadiusMiles, 10);
+});
+
+test('widens only when the tight radius is empty', () => {
+  const far = provider({ id: 'far', base: milesEast(24) });
+  const result = findMatchesTiered(
+    wideCriteria,
+    context({ providers: [far], slots: [slot({ providerId: 'far' })] }),
+  );
+
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.searchRadiusMiles, 30, 'escalated past the 10 and 20 mile tiers');
+});
+
+test('never matches a pickup beyond the ceiling', () => {
+  const tooFar = provider({ id: 'toofar', base: milesEast(45), serviceRadiusKm: 500 });
+  const result = findMatchesTiered(
+    wideCriteria,
+    context({ providers: [tooFar], slots: [slot({ providerId: 'toofar' })] }),
+  );
+
+  assert.equal(result.candidates.length, 0);
+  assert.equal(result.rejections.out_of_range, 1);
+  assert.equal(result.searchRadiusMiles, 30);
+});
+
+test('a requester asking to look less far is obeyed', () => {
+  const eightMiles = provider({ id: 'eight', base: milesEast(8) });
+  const context_ = context({
+    providers: [eightMiles],
+    slots: [slot({ providerId: 'eight' })],
+  });
+
+  assert.equal(findMatchesTiered(wideCriteria, context_).candidates.length, 1);
+
+  const tight = findMatchesTiered({ ...criteria, maxDistanceKm: milesToKm(5) }, context_);
+  assert.equal(tight.candidates.length, 0, 'a 5-mile cap rules out the 8-mile driver');
+  assert.equal(tight.searchRadiusMiles, 5);
 });

@@ -1,6 +1,9 @@
 import { store } from './store.js';
+import { config } from '../config.js';
+import { lookupZip } from '../domain/zipCodes.js';
+import { milesToKm } from '../domain/distancePolicy.js';
 import type { MilitaryBranch, ServiceTypeId } from '../domain/serviceCatalog.js';
-import type { Place, ServiceOffering } from '../types.js';
+import type { ServiceOffering } from '../types.js';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -18,8 +21,7 @@ interface SeedProvider {
   bio: string;
   email: string;
   phone: string;
-  base: Place;
-  serviceRadiusKm: number;
+  zip: string;
   offerings: ServiceOffering[];
   rating: number | null;
   completedJobs: number;
@@ -35,8 +37,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Motor T for two deployments. Happy to drive anyone to a VA appointment.',
     email: 'marcus.hale@example.com',
     phone: '+1-619-555-0142',
-    base: { lat: 32.7157, lng: -117.1611, address: 'Downtown, San Diego, CA' },
-    serviceRadiusKm: 40,
+    zip: '92101',
     offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
     rating: 4.9,
     completedJobs: 34,
@@ -53,8 +54,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Hospital corpsman. I will drive you to the appointment and sit with you through it.',
     email: 'denise.okafor@example.com',
     phone: '+1-619-555-0177',
-    base: { lat: 32.7677, lng: -117.2231, address: 'Point Loma, San Diego, CA' },
-    serviceRadiusKm: 25,
+    zip: '92106',
     offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
     rating: 5,
     completedJobs: 61,
@@ -70,8 +70,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Drove convoy for twenty years. Long hauls, early starts, bad weather — none of it bothers me.',
     email: 'ray.whitlock@example.com',
     phone: '+1-619-555-0193',
-    base: { lat: 32.8328, lng: -116.9625, address: 'El Cajon, CA' },
-    serviceRadiusKm: 60,
+    zip: '92020',
     offerings: [{ serviceType: 'rides', rateType: 'hourly', hourlyRateUsd: 35 }],
     rating: 4.7,
     completedJobs: 18,
@@ -88,8 +87,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Cyber ops, still serving in the reserves. Evenings and weekends are mine to give.',
     email: 'priya.raman@example.com',
     phone: '+1-858-555-0110',
-    base: { lat: 32.8801, lng: -117.234, address: 'La Jolla, San Diego, CA' },
-    serviceRadiusKm: 20,
+    zip: '92037',
     offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
     rating: null,
     completedJobs: 0,
@@ -106,8 +104,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Search and rescue. Retired, restless, and behind the wheel most of the week.',
     email: 'tom.bierman@example.com',
     phone: '+1-760-555-0164',
-    base: { lat: 33.1959, lng: -117.3795, address: 'Oceanside, CA' },
-    serviceRadiusKm: 50,
+    zip: '92054',
     offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
     rating: 4.4,
     completedJobs: 9,
@@ -124,6 +121,9 @@ export function seedDemoData(): { providers: number; slots: number } {
   let slotCount = 0;
 
   for (const seed of SEED_PROVIDERS) {
+    const location = lookupZip(seed.zip);
+    if (!location) throw new Error(`Demo veteran ${seed.name} has an unserviced ZIP ${seed.zip}`);
+
     const provider = store.createProvider({
       name: seed.name,
       branch: seed.branch,
@@ -131,8 +131,9 @@ export function seedDemoData(): { providers: number; slots: number } {
       bio: seed.bio,
       email: seed.email,
       phone: seed.phone,
-      base: seed.base,
-      serviceRadiusKm: seed.serviceRadiusKm,
+      zip: seed.zip,
+      base: { lat: location.lat, lng: location.lng, address: location.city },
+      serviceRadiusKm: milesToKm(config.maxPickupMiles),
       offerings: seed.offerings,
       rating: seed.rating,
       completedJobs: seed.completedJobs,

@@ -110,16 +110,35 @@ components (`src/domain/matching.ts`, returned in `scoreBreakdown` so the UI can
 `workloadBalance` is deliberate: a community network that always routes to the same three
 people burns them out. Change the weights in one place and every match moves with them.
 
+### How far is too far
+
+Scoring alone isn't enough to keep pickups short — a five-star driver twenty-five miles out can
+outscore an average one four miles away. So the search is **closest-first**
+(`backend/src/domain/distancePolicy.ts`):
+
+- **Tiers.** We run the full ranking within **10 miles**, then **20**, then **30**, and stop at
+  the first radius that finds anybody. Nobody four miles away is passed over for someone
+  twenty-five miles out with a better rating.
+- **Ceiling.** **30 miles** is the furthest a veteran is ever sent to a pickup. Past that we
+  would rather tell the rider nobody is available than ask for an hour's drive before the trip
+  starts. A requester may ask us to look *less* far; a request for more is clamped, not refused.
+- **Reported.** `diagnostics.searchRadiusMiles` says how far out we actually had to look, so a
+  match at 28 miles is visibly a stretch rather than looking like a normal result.
+
+Tune it with `MAX_PICKUP_MILES`, or edit `PICKUP_TIERS_MILES` for the ladder. The veteran
+sign-up page reads both from `GET /api/v1/catalog`, so the promise made at sign-up and the
+behaviour of the matcher can't drift apart.
+
 ## The rest of the API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
 | `GET` | `/api/v1/catalog` | Service types, branches, match weights — so neither client hardcodes enums |
-| `POST` | `/api/v1/providers` | A veteran joins the network |
+| `POST` | `/api/v1/providers` | A veteran joins the network (give a `zip`, not coordinates) |
 | `GET` | `/api/v1/providers?serviceType=rides` | Public roster (no contact details) |
 | `GET` | `/api/v1/providers/:id` | Profile + open slots |
-| `PATCH` | `/api/v1/providers/:id` | Update bio, radius, offerings, pause with `active: false` |
+| `PATCH` | `/api/v1/providers/:id` | Update bio, ZIP, offerings, pause with `active: false` |
 | `POST` | `/api/v1/providers/:id/slots` | **Commit** a block of time |
 | `GET` | `/api/v1/providers/:id/slots?status=open` | Their commitments |
 | `DELETE` | `/api/v1/providers/:id/slots/:slotId` | Withdraw an unbooked commitment |
@@ -174,14 +193,24 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
 4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-5. **No geocoding.** The veteran site offers preset San Diego coordinates plus manual lat/lng.
-   Swapping in a geocoder touches only `frontend/components/LocationPicker.tsx`. The request
-   app will need its own answer for this — device location is the obvious one.
-6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
+5. **ZIP centroids instead of geocoding.** Veterans give a ZIP; we match from a static table
+   of San Diego County centroids in `backend/src/domain/zipCodes.ts` (80 ZIPs, including the
+   bases). Off-map ZIPs are refused with a plain explanation. A real geocoder means
+   reimplementing `lookupZip` and nothing else. The request app needs its own answer for the
+   rider's location — device GPS is the obvious one.
+6. **One distance policy for the whole county.** The 10/20/30-mile ladder is applied
+   everywhere. That's right for the metro and probably wrong for Julian or Ramona, where 10
+   miles reaches almost nobody and a 40-mile drive may be normal. Per-ZIP tiers, or letting a
+   veteran opt into longer runs, is the next refinement.
+7. **Only the pickup leg is measured.** We match on how far the veteran drives to reach the
+   rider. The trip itself is unbounded because the request app doesn't send a destination — a
+   driver matched at 2 miles could still be asked for a 60-mile round trip. Taking a
+   destination and scoring total mileage is the honest fix.
+8. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
    it matters more now that the requester and the veteran are in different apps.
-7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
-8. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
+9. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
+10. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
    `Idempotency-Key`, which holds for one process but not for a horizontally scaled API. A real
    deployment needs a transactional claim on the slot row.
-9. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
+11. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
    collects it after a completed job yet.

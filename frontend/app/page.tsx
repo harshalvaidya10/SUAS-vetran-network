@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getCatalog, getProviders, type Provider, type ServiceType } from '@/lib/api';
+import { getCatalog, getProviders, type Catalog, type Provider, type ServiceType } from '@/lib/api';
 import { BRANCH_LABELS } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -7,18 +7,24 @@ export const dynamic = 'force-dynamic';
 async function loadNetwork(): Promise<{
   serviceTypes: ServiceType[];
   providers: Provider[];
+  distance: Catalog['distance'] | null;
   offline: boolean;
 }> {
   try {
     const [catalog, roster] = await Promise.all([getCatalog(), getProviders()]);
-    return { serviceTypes: catalog.serviceTypes, providers: roster.providers, offline: false };
+    return {
+      serviceTypes: catalog.serviceTypes,
+      providers: roster.providers,
+      distance: catalog.distance,
+      offline: false,
+    };
   } catch {
-    return { serviceTypes: [], providers: [], offline: true };
+    return { serviceTypes: [], providers: [], distance: null, offline: true };
   }
 }
 
 export default async function HomePage() {
-  const { serviceTypes, providers, offline } = await loadNetwork();
+  const { serviceTypes, providers, distance, offline } = await loadNetwork();
   const committedHours = providers.length;
 
   return (
@@ -76,8 +82,11 @@ export default async function HomePage() {
             <li>
               <strong>Requests route to you.</strong>
               <p className="muted small">
-                One block, one job. We send the closest veteran who committed — and spread work
-                toward whoever has been idle, so nobody carries the whole network.
+                One block, one job. We match you with riders within{' '}
+                {distance?.pickupTiersMiles[0] ?? 10} miles of you first, and only send you further
+                when nobody closer to them is free — never past {distance?.maxPickupMiles ?? 30}{' '}
+                miles. Work spreads toward whoever has been idle, so nobody carries the whole
+                network.
               </p>
             </li>
             <li>
@@ -108,8 +117,8 @@ export default async function HomePage() {
           </div>
           <p className="mono muted" style={{ marginTop: 16 }}>
             {serviceTypes[0]
-              ? `Typical trip: ${serviceTypes[0].defaultDurationMinutes} minutes. You set how far you will travel.`
-              : 'You set how far you will travel.'}
+              ? `Typical trip: ${serviceTypes[0].defaultDurationMinutes} minutes. Pickups stay within ${distance?.maxPickupMiles ?? 30} miles of your ZIP.`
+              : 'Pickups stay close to your ZIP.'}
           </p>
 
           {providers.length > 0 ? (

@@ -26,9 +26,11 @@ export interface Provider {
   bio: string;
   email: string;
   phone: string;
-  /** Where they start from; used for distance to the requester. */
+  /** The ZIP they gave us at sign-up — the only location we ask them for. */
+  zip: string;
+  /** Centroid of `zip`; what distance to the requester is measured from. */
   base: Place;
-  /** How far they are willing to travel from `base`. */
+  /** How far we'll match them from `base`. Network policy, not their input. */
   serviceRadiusKm: number;
   offerings: ServiceOffering[];
   /** 0-5. New providers start unrated and are treated as 4.5 by the matcher. */

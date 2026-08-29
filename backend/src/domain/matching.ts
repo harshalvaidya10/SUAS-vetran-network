@@ -1,4 +1,5 @@
 import { distanceKm } from './geo.js';
+import { kmToMiles, pickupTiersKm } from './distancePolicy.js';
 import type { MilitaryBranch, ServiceTypeId } from './serviceCatalog.js';
 import type { AvailabilitySlot, Place, Provider, ServiceOffering } from '../types.js';
 
@@ -281,4 +282,36 @@ export function countRecentBookings(
     counts.set(booking.providerId, (counts.get(booking.providerId) ?? 0) + 1);
   }
   return counts;
+}
+
+export interface TieredMatchResult extends MatchResult {
+  /** How far out we ended up having to look, in miles. */
+  searchRadiusMiles: number;
+}
+
+/**
+ * Closest-first matching. Runs the ranking inside a tight radius and widens
+ * only when that radius came up empty, so proximity can't be outvoted by a
+ * high rating twenty miles away. The rejection tally returned on a miss is the
+ * one from the widest search, since that's the honest picture.
+ */
+export function findMatchesTiered(
+  criteria: MatchCriteria,
+  context: MatchContext,
+): TieredMatchResult {
+  const tiers = pickupTiersKm(criteria.maxDistanceKm);
+  let widest: MatchResult | null = null;
+
+  for (const tierKm of tiers) {
+    const result = findMatches({ ...criteria, maxDistanceKm: tierKm }, context);
+    if (result.candidates.length > 0) {
+      return { ...result, searchRadiusMiles: Math.round(kmToMiles(tierKm)) };
+    }
+    widest = result;
+  }
+
+  return {
+    ...widest!,
+    searchRadiusMiles: Math.round(kmToMiles(tiers[tiers.length - 1]!)),
+  };
 }

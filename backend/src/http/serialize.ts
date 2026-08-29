@@ -24,7 +24,13 @@ export function publicProvider(provider: Provider) {
 
 /** Adds contact details; only used once a booking ties the two people together. */
 export function providerWithContact(provider: Provider) {
-  return { ...publicProvider(provider), email: provider.email, phone: provider.phone };
+  return {
+    ...publicProvider(provider),
+    email: provider.email,
+    phone: provider.phone,
+    zip: provider.zip,
+    serviceRadiusKm: provider.serviceRadiusKm,
+  };
 }
 
 export function serializeSlot(slot: AvailabilitySlot) {

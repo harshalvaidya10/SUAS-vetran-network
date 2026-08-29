@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { store } from '../data/store.js';
-import { countRecentBookings, findMatches, type MatchCriteria } from '../domain/matching.js';
+import { countRecentBookings, findMatchesTiered, type MatchCriteria } from '../domain/matching.js';
 import { getServiceType } from '../domain/serviceCatalog.js';
+import { MAX_PICKUP_MILES } from '../domain/distancePolicy.js';
 import { ApiError } from '../http/errors.js';
 import { parse, serviceRequestSchema } from '../http/validation.js';
 import { serializeBooking, serializeCandidate } from '../http/serialize.js';
@@ -77,7 +78,7 @@ serviceRequestsRouter.post('/', (req, res) => {
   };
 
   const providers = store.listProviders();
-  const result = findMatches(criteria, {
+  const result = findMatchesTiered(criteria, {
     providers,
     slots: store.listSlots({ status: 'open' }),
     recentBookingCounts: countRecentBookings(store.listBookings(), now),
@@ -87,6 +88,8 @@ serviceRequestsRouter.post('/', (req, res) => {
   const diagnostics = {
     providersConsidered: providers.length,
     matchedProviders: result.matchedProviders,
+    // How far out we had to look before finding anyone.
+    searchRadiusMiles: result.searchRadiusMiles,
     rejections: result.rejections,
   };
 
@@ -223,7 +226,8 @@ function noMatchAdvice(rejections: Record<string, number>): string {
     case 'no_overlapping_slot':
       return 'Veterans nearby offer this, but nobody has committed to a slot in your window. Try widening the time range.';
     case 'out_of_range':
-      return 'The veterans who offer this are outside your distance limit. Try searching a wider radius.';
+      // The ceiling is ours, not theirs — don't suggest a knob they can't turn.
+      return `The nearest veteran is further than ${MAX_PICKUP_MILES} miles away, which is past how far we will ask someone to drive to a pickup.`;
     case 'service_not_offered':
       return 'No one on the network offers this service yet.';
     case 'rating_below_minimum':

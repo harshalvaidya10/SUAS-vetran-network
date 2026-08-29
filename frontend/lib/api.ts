@@ -19,6 +19,12 @@ export interface Catalog {
   serviceTypes: ServiceType[];
   branches: Branch[];
   matchWeights: Record<string, number>;
+  distance: {
+    /** Furthest a veteran will ever be sent to a pickup. */
+    maxPickupMiles: number;
+    /** Radii searched in order, closest first. */
+    pickupTiersMiles: number[];
+  };
 }
 
 export interface Offering {
@@ -40,6 +46,9 @@ export interface Provider {
   offerings: Offering[];
   email?: string;
   phone?: string;
+  /** Only present on the veteran's own view of their profile. */
+  zip?: string;
+  serviceRadiusKm?: number;
 }
 
 export interface Slot {

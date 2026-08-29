@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
 import { isServiceTypeId } from '../domain/serviceCatalog.js';
+import { lookupZip } from '../domain/zipCodes.js';
+import { milesToKm } from '../domain/distancePolicy.js';
 import { ApiError } from '../http/errors.js';
 import { providerWithContact, publicProvider, serializeBooking, serializeSlot } from '../http/serialize.js';
 import { parse, providerCreateSchema, providerUpdateSchema, slotCreateSchema } from '../http/validation.js';
@@ -14,12 +16,27 @@ function requireProvider(id: string | undefined) {
   return provider;
 }
 
+/** Turns a ZIP into the point we match from, or explains why we can't. */
+function resolveZip(zip: string) {
+  const location = lookupZip(zip);
+  if (!location) {
+    throw ApiError.badRequest(
+      `We're only running in San Diego County right now, and ${zip} isn't in our service area yet.`,
+    );
+  }
+  return location;
+}
+
 /** POST /api/v1/providers — a veteran joins the network. */
 providersRouter.post('/', (req, res) => {
   const input = parse(providerCreateSchema, req.body);
+  const location = resolveZip(input.zip);
 
   const provider = store.createProvider({
     ...input,
+    base: { lat: location.lat, lng: location.lng, address: location.city },
+    // Reach is network policy, not something we ask a driver to estimate.
+    serviceRadiusKm: milesToKm(config.maxPickupMiles),
     rating: null,
     completedJobs: 0,
     // Real deployments verify service (DD-214 / ID.me) before anyone is matched.
@@ -57,7 +74,14 @@ providersRouter.get('/:id', (req, res) => {
 providersRouter.patch('/:id', (req, res) => {
   const provider = requireProvider(req.params.id);
   const patch = parse(providerUpdateSchema, req.body);
-  const updated = store.updateProvider(provider.id, patch)!;
+
+  // Moving ZIP moves the point they're matched from.
+  const base = patch.zip ? resolveZip(patch.zip) : null;
+  const updated = store.updateProvider(provider.id, {
+    ...patch,
+    ...(base ? { base: { lat: base.lat, lng: base.lng, address: base.city } } : {}),
+  })!;
+
   res.json({ provider: providerWithContact(updated) });
 });
 
