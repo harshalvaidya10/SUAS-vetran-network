@@ -4,7 +4,9 @@ export const config = {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
-  seedDemoData: (process.env.SEED_DEMO_DATA ?? '1') !== '0',
+  // Local development starts useful; Vercel/Neon starts with a clean roster
+  // unless a preview/demo deployment explicitly opts into seed data.
+  seedDemoData: (process.env.SEED_DEMO_DATA ?? (process.env.VERCEL ? '0' : '1')) !== '0',
   /**
    * Bootstrap convenience: new sign-ups are treated as verified so the demo
    * flow works end to end. Turn this off the moment real requesters are on the

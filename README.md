@@ -37,6 +37,23 @@ For Vercel, provision Neon and set `DATABASE_URL` to its PostgreSQL connection s
 then switches to PostgreSQL and creates the same schema automatically on startup. The Docker
 Compose setup remains available for developers who want a local PostgreSQL instance.
 
+### Vercel + Neon checklist
+
+1. In the Vercel backend project, open **Storage**, install **Neon**, and connect the database
+   to both Preview and Production. Use the pooled connection string (its hostname contains
+   `-pooler`); the Marketplace integration normally supplies this as `DATABASE_URL`.
+2. Set `SEED_DEMO_DATA=0` in Production. This is already the Vercel default in code; set it
+   explicitly if you want the dashboard to document the choice. A hackathon Preview can use
+   `SEED_DEMO_DATA=1` to load the five demo drivers into an empty database.
+3. Set `CORS_ORIGINS` to the deployed frontend URL and set the frontend project’s
+   `NEXT_PUBLIC_API_URL` to the deployed backend URL.
+4. Redeploy the backend after connecting Neon, then request `/health`. A correct deployment
+   returns `{ "status": "ok", "database": "postgres" }`. Vercel deliberately refuses to
+   start without a persistent database instead of silently writing to temporary SQLite.
+
+The PostgreSQL schema and unique normalized-phone constraint are applied idempotently during
+backend cold start, so a brand-new Neon database requires no separate local `psql` command.
+
 Or one at a time: `npm run dev:api` / `npm run dev:web`.
 
 The API seeds five demo drivers in San Diego with committed slots on every boot, so

@@ -90,11 +90,27 @@ CREATE TABLE IF NOT EXISTS bookings (id uuid PRIMARY KEY, provider_id uuid NOT N
 CREATE INDEX IF NOT EXISTS bookings_provider_idx ON bookings(provider_id);
 CREATE TABLE IF NOT EXISTS idempotency_keys (key text PRIMARY KEY, request_id uuid NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE);`;
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 const storeType = process.env.VETNET_STORE;
+if (process.env.VERCEL && !databaseUrl && storeType !== 'memory') {
+  throw new Error(
+    'A persistent database is required on Vercel. Connect Neon and expose DATABASE_URL to this project.',
+  );
+}
+
+export const databaseKind = storeType === 'memory' ? 'memory' : databaseUrl ? 'postgres' : 'sqlite';
 export const store: Store = storeType === 'memory'
   ? new MemoryStore()
   : databaseUrl
-    ? new PostgresStore(new Pool({ connectionString: databaseUrl }))
+    ? new PostgresStore(new Pool({
+        connectionString: databaseUrl,
+        // Each Vercel function instance gets its own application-side pool.
+        // Keep it deliberately small and use Neon's pooled (-pooler) URL.
+        max: Number(process.env.DATABASE_POOL_MAX ?? 3),
+        connectionTimeoutMillis: 10_000,
+        idleTimeoutMillis: 30_000,
+        allowExitOnIdle: true,
+      }))
     : new SqliteStore(process.env.SQLITE_PATH ?? '.data/vetnet.sqlite');
 export async function initializeStore() { if (store instanceof PostgresStore || store instanceof SqliteStore) await store.initialize(); }
+export async function checkStoreConnection() { await store.listProviders(); }

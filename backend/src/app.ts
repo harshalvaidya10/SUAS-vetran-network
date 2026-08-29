@@ -2,7 +2,7 @@ import cors from 'cors';
 import express, { type Express } from 'express';
 import { config } from './config.js';
 import { seedDemoData } from './data/seed.js';
-import { initializeStore, store } from './data/store.js';
+import { checkStoreConnection, databaseKind, initializeStore, store } from './data/store.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { bookingsRouter } from './routes/bookings.js';
 import { catalogRouter } from './routes/catalog.js';
@@ -24,8 +24,13 @@ export function createApp(): Express {
     next();
   });
 
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) });
+  app.get('/health', async (_req, res) => {
+    await checkStoreConnection();
+    res.json({
+      status: 'ok',
+      database: databaseKind,
+      uptimeSeconds: Math.round(process.uptime()),
+    });
   });
 
   app.use('/api/v1/catalog', catalogRouter);
