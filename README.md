@@ -1,11 +1,25 @@
 # VetNet
 
 An on-demand service network for the veteran community. Veterans sign up and **commit to
-blocks of time**; anyone who needs a hand makes **one API call** that searches the roster,
-intersects it with committed availability, ranks the matches and books the best one.
+blocks of time**; a request arrives as **one API call** that searches the roster, intersects it
+with committed availability, ranks the matches and books the best one.
 
-- `backend/` — Express 5 + TypeScript API (in-memory store, no database yet)
-- `frontend/` — Next.js 16 App Router client (requester flow + veteran flow)
+**MVP scope: driving only.** The catalog is a single service (`rides`), so the whole product
+is "a veteran needs a ride, another veteran drives them". The `serviceType` field, its type
+union and the per-slot service filter all survive — a second service is one entry in
+`backend/src/domain/serviceCatalog.ts`, not a schema change.
+
+This repo is the **supply side and the brain**:
+
+- `backend/` — Express 5 + TypeScript API: the roster, the commitments, and the matching
+  engine (in-memory store, no database yet)
+- `frontend/` — Next.js 16 App Router site for **onboarding veteran drivers**: sign up, commit
+  blocks, manage the rides that land on them
+
+The **demand side is a separate app** — a minimal one-button client. It doesn't need its own
+matching, roster, or scheduling logic: it posts a single request here and gets back a
+confirmed veteran. [The one endpoint it calls](#the-one-endpoint-the-request-app-calls) is the
+whole integration surface.
 
 ## Run it
 
@@ -16,8 +30,9 @@ npm run dev           # API on :4000, web on :3000
 
 Or one at a time: `npm run dev:api` / `npm run dev:web`.
 
-The API seeds five demo veterans in San Diego with committed slots on every boot, so the
-match flow works the moment you open http://localhost:3000/request.
+The API seeds five demo drivers in San Diego with committed slots on every boot, so
+matching works the moment the API is up — open http://localhost:3000 for the veteran site, or
+fire the request-app call below with curl.
 
 Config: copy `backend/.env.example` → `backend/.env` and `frontend/.env.local.example` →
 `frontend/.env.local` if you need to change ports or origins.
@@ -27,10 +42,11 @@ npm test                        # matching-engine unit tests (10)
 npm run build                   # tsc for the API, next build for the web app
 ```
 
-## The one endpoint the client needs
+## The one endpoint the request app calls
 
-Everything on the requester side is a single call. There is no search-then-book handshake to
-orchestrate in the client.
+The entire demand side is a single call. The request app holds no roster, no availability and
+no ranking logic — it posts what someone needs and gets back a confirmed veteran, so a
+one-button client stays a one-button client.
 
 ```http
 POST /api/v1/service-requests
@@ -99,7 +115,7 @@ people burns them out. Change the weights in one place and every match moves wit
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
-| `GET` | `/api/v1/catalog` | Service types, branches, match weights — so the client hardcodes no enums |
+| `GET` | `/api/v1/catalog` | Service types, branches, match weights — so neither client hardcodes enums |
 | `POST` | `/api/v1/providers` | A veteran joins the network |
 | `GET` | `/api/v1/providers?serviceType=rides` | Public roster (no contact details) |
 | `GET` | `/api/v1/providers/:id` | Profile + open slots |
@@ -115,7 +131,7 @@ people burns them out. Change the weights in one place and every match moves wit
 Errors are always `{ "error": { "code", "message", "details?" } }`; validation failures list
 the offending fields.
 
-### Try it from the shell
+### Try it from the shell — this is what the request app sends
 
 ```bash
 curl -s localhost:4000/api/v1/service-requests -H 'Content-Type: application/json' -d '{
@@ -147,18 +163,25 @@ the ranking rules are covered by fast unit tests.
 
 These are deliberate bootstrap cuts, roughly in the order they should be closed:
 
-1. **No auth.** Anyone who knows a provider id can edit that profile or cancel its bookings.
-   The veteran identity is kept in `localStorage` on the client. Needs real accounts + sessions.
-2. **No persistence.** Restarting the API wipes everyone. In-memory only.
-3. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
+1. **The match endpoint is unauthenticated.** Now that the demand side is a separate app,
+   `POST /api/v1/service-requests` is a public door into the roster: any caller can book real
+   veterans' committed hours, and repeated calls can map out who is available where. The first
+   thing to add is a shared secret the request app sends (`Authorization: Bearer …`), checked in
+   one middleware.
+2. **No veteran auth either.** Anyone who knows a provider id can edit that profile or cancel
+   its bookings. The veteran identity is kept in `localStorage`. Needs real accounts + sessions.
+3. **No persistence.** Restarting the API wipes everyone. In-memory only.
+4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-4. **No geocoding.** The UI offers preset San Diego coordinates plus manual lat/lng. Swapping
-   in a geocoder touches only `frontend/components/LocationPicker.tsx`.
-5. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email.
-6. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
-7. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
+5. **No geocoding.** The veteran site offers preset San Diego coordinates plus manual lat/lng.
+   Swapping in a geocoder touches only `frontend/components/LocationPicker.tsx`. The request
+   app will need its own answer for this — device location is the obvious one.
+6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
+   it matters more now that the requester and the veteran are in different apps.
+7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
+8. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
    `Idempotency-Key`, which holds for one process but not for a horizontally scaled API. A real
    deployment needs a transactional claim on the slot row.
-8. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
+9. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
    collects it after a completed job yet.

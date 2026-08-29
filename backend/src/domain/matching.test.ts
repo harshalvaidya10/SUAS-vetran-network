@@ -79,7 +79,9 @@ test('never matches unverified or deactivated veterans', () => {
 });
 
 test('skips veterans whose slot does not cover the requested service', () => {
-  const result = findMatches(criteria, context({ slots: [slot({ serviceTypes: ['yard_work'] })] }));
+  // A slot that covers nothing the requester asked for is invisible to the
+  // matcher — the mechanism that will matter again when the catalog grows.
+  const result = findMatches(criteria, context({ slots: [slot({ serviceTypes: [] })] }));
   assert.equal(result.candidates.length, 0);
   assert.equal(result.rejections.no_overlapping_slot, 1);
 });
