@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express, { type Express } from 'express';
 import { config } from './config.js';
+import { seedDemoData } from './data/seed.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { bookingsRouter } from './routes/bookings.js';
 import { catalogRouter } from './routes/catalog.js';
@@ -35,3 +36,15 @@ export function createApp(): Express {
 
   return app;
 }
+
+// Module initialization runs once per warm Node.js process. This makes demo
+// data available whether Vercel loads app.ts or index.ts, without reseeding on
+// every request.
+if (config.seedDemoData) {
+  const { providers, slots } = seedDemoData();
+  console.log(`Seeded ${providers} demo veterans with ${slots} committed slots.`);
+}
+
+const app = createApp();
+
+export default app;
