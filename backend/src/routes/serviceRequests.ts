@@ -19,17 +19,17 @@ export const serviceRequestsRouter: Router = Router();
  * and (by default) books the best one — so the client never has to orchestrate
  * a search-then-book handshake of its own.
  */
-serviceRequestsRouter.post('/', (req, res) => {
+serviceRequestsRouter.post('/', async (req, res) => {
   const idempotencyKey = req.header('Idempotency-Key');
   if (idempotencyKey) {
-    const previous = store.findIdempotentRequest(idempotencyKey);
+    const previous = await store.findIdempotentRequest(idempotencyKey);
     if (previous) {
-      const booking = previous.bookingId ? store.getBooking(previous.bookingId) : undefined;
+      const booking = previous.bookingId ? await store.getBooking(previous.bookingId) : undefined;
       res.status(200).json({
         requestId: previous.id,
         status: previous.status,
         replayed: true,
-        booking: booking ? serializeBooking(booking, store.getProvider(booking.providerId)) : null,
+        booking: booking ? serializeBooking(booking, await store.getProvider(booking.providerId)) : null,
         match: null,
         alternatives: [],
       });
@@ -93,12 +93,12 @@ serviceRequestsRouter.post('/', (req, res) => {
     ...(input.preferences.providerId ? { providerId: input.preferences.providerId } : {}),
   };
 
-  const providers = store.listProviders();
+  const providers = await store.listProviders();
   const result = findMatches(criteria, {
     providers,
-    slots: store.listSlots(),
-    bookings: store.listBookings(),
-    recentBookingCounts: countRecentBookings(store.listBookings(), now),
+    slots: await store.listSlots(),
+    bookings: await store.listBookings(),
+    recentBookingCounts: countRecentBookings(await store.listBookings(), now),
     now,
   });
 
@@ -109,7 +109,7 @@ serviceRequestsRouter.post('/', (req, res) => {
   };
 
   if (result.candidates.length === 0) {
-    const record = store.createRequest({
+    const record = await store.createRequest({
       serviceType: input.serviceType,
       requester: input.requester,
       location,
@@ -120,7 +120,7 @@ serviceRequestsRouter.post('/', (req, res) => {
       status: 'no_match',
       candidatesConsidered: 0,
     });
-    if (idempotencyKey) store.rememberIdempotentRequest(idempotencyKey, record.id);
+    if (idempotencyKey) await store.rememberIdempotentRequest(idempotencyKey, record.id);
 
     res.status(200).json({
       requestId: record.id,
@@ -137,7 +137,7 @@ serviceRequestsRouter.post('/', (req, res) => {
   const [best, ...rest] = result.candidates;
 
   if (!input.autoBook) {
-    const record = store.createRequest({
+    const record = await store.createRequest({
       serviceType: input.serviceType,
       requester: input.requester,
       location,
@@ -148,7 +148,7 @@ serviceRequestsRouter.post('/', (req, res) => {
       status: 'matched',
       candidatesConsidered: result.candidates.length,
     });
-    if (idempotencyKey) store.rememberIdempotentRequest(idempotencyKey, record.id);
+    if (idempotencyKey) await store.rememberIdempotentRequest(idempotencyKey, record.id);
 
     res.status(200).json({
       requestId: record.id,
@@ -165,22 +165,22 @@ serviceRequestsRouter.post('/', (req, res) => {
   // If the top driver changed state, try the next ranked alternative.
   let chosen = best;
   let chosenIndex = -1;
-  let slot: ReturnType<typeof store.getSlot>;
+  let slot: Awaited<ReturnType<typeof store.getSlot>>;
   for (const [index, candidate] of result.candidates.entries()) {
     const currentNow = new Date();
-    const currentBookings = store.listBookings();
+    const currentBookings = await store.listBookings();
     const revalidated = findMatches(
       { ...criteria, providerId: candidate.provider.id, limit: 1 },
       {
-        providers: store.listProviders(),
-        slots: store.listSlots(),
+        providers: await store.listProviders(),
+        slots: await store.listSlots(),
         bookings: currentBookings,
         recentBookingCounts: countRecentBookings(currentBookings, currentNow),
         now: currentNow,
       },
     ).candidates[0];
     if (!revalidated || revalidated.slot.id !== candidate.slot.id) continue;
-    const claimed = store.claimOpenSlot(revalidated.slot.id);
+    const claimed = await store.claimOpenSlot(revalidated.slot.id);
     if (!claimed) continue;
     chosen = revalidated;
     chosenIndex = index;
@@ -191,7 +191,7 @@ serviceRequestsRouter.post('/', (req, res) => {
     throw ApiError.conflict('Driver availability changed before booking. Retry for a fresh match.');
   }
 
-  const record = store.createRequest({
+  const record = await store.createRequest({
     serviceType: input.serviceType,
     requester: input.requester,
     location,
@@ -203,7 +203,7 @@ serviceRequestsRouter.post('/', (req, res) => {
     candidatesConsidered: result.candidates.length,
   });
 
-  const booking = store.createBooking({
+  const booking = await store.createBooking({
     requestId: record.id,
     slotId: slot.id,
     providerId: chosen.provider.id,
@@ -218,8 +218,8 @@ serviceRequestsRouter.post('/', (req, res) => {
     ...(input.notes ? { notes: input.notes } : {}),
   });
 
-  store.updateRequest(record.id, { bookingId: booking.id });
-  if (idempotencyKey) store.rememberIdempotentRequest(idempotencyKey, record.id);
+  await store.updateRequest(record.id, { bookingId: booking.id });
+  if (idempotencyKey) await store.rememberIdempotentRequest(idempotencyKey, record.id);
 
   res.status(201).json({
     requestId: record.id,
@@ -232,14 +232,14 @@ serviceRequestsRouter.post('/', (req, res) => {
 });
 
 /** GET /api/v1/service-requests/:id — what happened to an earlier request. */
-serviceRequestsRouter.get('/:id', (req, res) => {
-  const record = store.getRequest(String(req.params.id));
+serviceRequestsRouter.get('/:id', async (req, res) => {
+  const record = await store.getRequest(String(req.params.id));
   if (!record) throw ApiError.notFound('No such service request.');
 
-  const booking = record.bookingId ? store.getBooking(record.bookingId) : undefined;
+  const booking = record.bookingId ? await store.getBooking(record.bookingId) : undefined;
   res.json({
     request: record,
-    booking: booking ? serializeBooking(booking, store.getProvider(booking.providerId)) : null,
+    booking: booking ? serializeBooking(booking, await store.getProvider(booking.providerId)) : null,
   });
 });
 

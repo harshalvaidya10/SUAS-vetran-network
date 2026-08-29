@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
@@ -37,10 +38,23 @@ export default function ServePage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [error, setError] = useState<ApiError | null>(null);
   const [pending, setPending] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
+  const [signupComplete, setSignupComplete] = useState(false);
+  const [showLogin, setShowLogin] = useState(true);
 
   useEffect(() => {
     getCatalog().then(setCatalog).catch(setError);
-    setProviderId(window.localStorage.getItem(STORAGE_KEY));
+    const startNewSignup = new URLSearchParams(window.location.search).get('new') === '1';
+    if (startNewSignup) {
+      // This forgets only which veteran this browser is viewing. The previous
+      // veteran remains persisted in SQLite/Postgres and visible in the roster.
+      window.localStorage.removeItem(STORAGE_KEY);
+      window.history.replaceState(null, '', '/serve');
+      setProviderId(null);
+      setShowLogin(false);
+    } else {
+      setProviderId(window.localStorage.getItem(STORAGE_KEY));
+    }
   }, []);
 
   // Re-reads the profile too, so a reload still knows who is signed in and
@@ -72,6 +86,14 @@ export default function ServePage() {
     window.localStorage.setItem(STORAGE_KEY, created.id);
     setProvider(created);
     setProviderId(created.id);
+    setOnboarding(true);
+  }
+
+  function onLoggedIn(loggedIn: Provider) {
+    window.localStorage.setItem(STORAGE_KEY, loggedIn.id);
+    setProvider(loggedIn);
+    setProviderId(loggedIn.id);
+    setOnboarding(false);
   }
 
   function signOut() {
@@ -80,6 +102,8 @@ export default function ServePage() {
     setProvider(null);
     setSlots([]);
     setBookings([]);
+    setOnboarding(false);
+    setSignupComplete(false);
   }
 
   async function withdrawSlot(slotId: string) {
@@ -111,11 +135,13 @@ export default function ServePage() {
   return (
     <>
       <p className="eyebrow">For veterans</p>
-      <h1>{providerId ? 'Your commitments' : 'Put your hours on the board'}</h1>
+      <h1>{providerId ? 'Your commitments' : showLogin ? 'Welcome back' : 'Put your hours on the board'}</h1>
       <p className="lede" style={{ marginTop: 14 }}>
         {providerId
           ? 'You are only matched inside the blocks you commit to. Withdraw a block any time before someone claims it.'
-          : 'Tell us where you are and on what terms you drive. Then commit the blocks of time you can actually be there for.'}
+          : showLogin
+            ? 'Use the phone number from your enrollment to check or withdraw your commitments.'
+            : 'Tell us where you are and on what terms you drive. Then commit the blocks of time you can actually be there for.'}
       </p>
 
       {error ? (
@@ -136,7 +162,23 @@ export default function ServePage() {
       <hr className="section-rule" />
 
       {!providerId ? (
-        <EnlistForm catalog={catalog} onEnlisted={onEnlisted} onError={setError} />
+        showLogin ? (
+          <LoginForm
+            onLoggedIn={onLoggedIn}
+            onError={setError}
+            onStartEnrollment={() => setShowLogin(false)}
+          />
+        ) : (
+          <>
+            <EnlistForm catalog={catalog} onEnlisted={onEnlisted} onError={setError} />
+            <p className="small muted" style={{ marginTop: 14 }}>
+              Already enrolled?{' '}
+              <button type="button" className="ghost small" onClick={() => setShowLogin(true)}>
+                Log in by phone
+              </button>
+            </p>
+          </>
+        )
       ) : (
         <div className="split">
           <div className="stack">
@@ -164,13 +206,41 @@ export default function ServePage() {
               </div>
             </div>
 
-            <CommitSlotForm
-              catalog={catalog}
-              providerId={providerId}
-              offerings={provider?.offerings ?? null}
-              onCommitted={() => void refresh(providerId)}
-              onError={setError}
-            />
+            {onboarding && signupComplete ? (
+              <div className="card stack" role="status">
+                <div>
+                  <p className="eyebrow">You&apos;re on the board</p>
+                  <h2>Signup complete</h2>
+                  <p className="muted" style={{ marginBottom: 0 }}>
+                    Your profile and time block are saved. We&apos;ll only match you with a rider
+                    during the hours you committed.
+                  </p>
+                </div>
+                <div className="row" style={{ alignItems: 'center', gap: 12 }}>
+                  <Link href="/" className="cta">
+                    Done
+                  </Link>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setSignupComplete(false)}
+                  >
+                    Add another block
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <CommitSlotForm
+                catalog={catalog}
+                providerId={providerId}
+                offerings={provider?.offerings ?? null}
+                onCommitted={() => {
+                  setSignupComplete(true);
+                  void refresh(providerId);
+                }}
+                onError={setError}
+              />
+            )}
           </div>
 
           <div className="stack">
@@ -285,6 +355,63 @@ export default function ServePage() {
         </div>
       )}
     </>
+  );
+}
+
+function LoginForm({
+  onLoggedIn,
+  onError,
+  onStartEnrollment,
+}: {
+  onLoggedIn: (provider: Provider) => void;
+  onError: (error: ApiError) => void;
+  onStartEnrollment: () => void;
+}) {
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [codeRequested, setCodeRequested] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  async function requestCode() {
+    setPending(true);
+    try {
+      await post('/api/v1/auth/request-code', { phone });
+      setCodeRequested(true);
+    } catch (caught) { onError(caught as ApiError); } finally { setPending(false); }
+  }
+
+  async function verifyCode() {
+    setPending(true);
+    try {
+      const { provider } = await post<{ provider: Provider }>('/api/v1/auth/verify-code', { phone, code });
+      onLoggedIn(provider);
+    } catch (caught) { onError(caught as ApiError); } finally { setPending(false); }
+  }
+
+  return (
+    <div className="card stack" style={{ maxWidth: 560 }}>
+      <label className="field">
+        <span>Phone number</span>
+        <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+1-619-555-0100" />
+      </label>
+      {codeRequested ? (
+        <>
+          <div className="alert ok">
+            Local demo code: <strong className="mono">123456</strong>
+          </div>
+          <label className="field">
+            <span>6-digit code</span>
+            <input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" />
+          </label>
+          <div><button type="button" disabled={pending || code.length !== 6} onClick={() => void verifyCode()}>{pending ? 'Checking…' : 'Log in'}</button></div>
+        </>
+      ) : (
+        <div><button type="button" disabled={pending || phone.length < 7} onClick={() => void requestCode()}>{pending ? 'Sending…' : 'Text me a code'}</button></div>
+      )}
+      <p className="small muted" style={{ margin: 0 }}>
+        Not enrolled yet? <button type="button" className="ghost small" onClick={onStartEnrollment}>Sign up to serve</button>
+      </p>
+    </div>
   );
 }
 

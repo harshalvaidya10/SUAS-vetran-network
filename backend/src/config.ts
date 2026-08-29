@@ -11,4 +11,6 @@ export const config = {
    * network — only verified veterans should ever be matched.
    */
   autoVerifyProviders: (process.env.AUTO_VERIFY_PROVIDERS ?? '1') !== '0',
+  /** Development-only OTP. Replace the mock auth routes with Twilio Verify before production. */
+  mockOtpCode: process.env.MOCK_OTP_CODE ?? '123456',
 };
