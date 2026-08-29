@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { MILITARY_BRANCHES, SERVICE_TYPES } from '../domain/serviceCatalog.js';
-import { SCORE_WEIGHTS } from '../domain/matching.js';
+import { FAIRNESS_MAX_EXTRA_KM, SCORE_WEIGHTS } from '../domain/matching.js';
+import { DEFAULT_SERVICE_RADIUS_KM } from '../http/validation.js';
 
 export const catalogRouter: Router = Router();
 
@@ -10,5 +11,14 @@ catalogRouter.get('/', (_req, res) => {
     serviceTypes: SERVICE_TYPES,
     branches: MILITARY_BRANCHES,
     matchWeights: SCORE_WEIGHTS,
+    /**
+     * The distance facts the sign-up page tells veterans, served rather than
+     * hardcoded in the client so the promise made at sign-up and the matcher's
+     * actual behaviour can't drift apart.
+     */
+    distance: {
+      serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
+      fairnessMaxExtraKm: FAIRNESS_MAX_EXTRA_KM,
+    },
   });
 });

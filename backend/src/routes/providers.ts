@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
 import { isServiceTypeId } from '../domain/serviceCatalog.js';
+import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
 import { ApiError } from '../http/errors.js';
 import { providerWithContact, publicProvider, serializeBooking, serializeSlot } from '../http/serialize.js';
 import { parse, providerCreateSchema, providerUpdateSchema, slotCreateSchema } from '../http/validation.js';
@@ -14,12 +15,32 @@ function requireProvider(id: string | undefined) {
   return provider;
 }
 
+/**
+ * Turns a ZIP into the point we match from. Everything downstream still works
+ * in coordinates; this is only about what we ask a person to type.
+ */
+function baseFromZip(zipCode: string) {
+  const point = getZipCoordinates(zipCode);
+  if (!point) {
+    throw ApiError.badRequest(
+      `We're only running in San Diego County right now, and ${zipCode} isn't in our service area yet.`,
+    );
+  }
+  return point;
+}
+
 /** POST /api/v1/providers — a veteran joins the network. */
 providersRouter.post('/', (req, res) => {
   const input = parse(providerCreateSchema, req.body);
+  const zipCode = normalizeZipCode(input.zipCode);
+  const point = baseFromZip(zipCode);
 
   const provider = store.createProvider({
     ...input,
+    zipCode,
+    // An explicit base still wins if a caller sends one; otherwise the ZIP
+    // centroid is the origin, and the ZIP is all the sign-up form collects.
+    base: input.base ?? { ...point, address: zipCode },
     rating: null,
     completedJobs: 0,
     // Real deployments verify service (DD-214 / ID.me) before anyone is matched.
@@ -57,7 +78,13 @@ providersRouter.get('/:id', (req, res) => {
 providersRouter.patch('/:id', (req, res) => {
   const provider = requireProvider(req.params.id);
   const patch = parse(providerUpdateSchema, req.body);
-  const updated = store.updateProvider(provider.id, patch)!;
+
+  // Changing ZIP moves the point they're matched from.
+  const zipCode = patch.zipCode ? normalizeZipCode(patch.zipCode) : null;
+  const updated = store.updateProvider(provider.id, {
+    ...patch,
+    ...(zipCode ? { zipCode, base: { ...baseFromZip(zipCode), address: zipCode } } : {}),
+  })!;
   res.json({ provider: providerWithContact(updated) });
 });
 

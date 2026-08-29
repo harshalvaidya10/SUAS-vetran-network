@@ -145,11 +145,11 @@ export default function ServePage() {
                 <div>
                   <p className="eyebrow">Signed in as</p>
                   <h3>{provider?.name ?? 'this veteran'}</h3>
-                  {provider?.zip ? (
+                  {provider?.servesFrom ? (
                     <p className="mono muted" style={{ margin: '4px 0 0' }}>
-                      Matched from {provider.zip} · {provider.servesFrom}
-                      {provider.serviceRadiusKm
-                        ? `, up to ${formatMiles(provider.serviceRadiusKm)} out`
+                      Matched from {provider.servesFrom}
+                      {catalog?.distance
+                        ? `, up to ${formatMiles(catalog.distance.serviceRadiusKm)} out`
                         : ''}
                     </p>
                   ) : (
@@ -327,7 +327,7 @@ function EnlistForm({
         bio,
         email,
         phone,
-        zip,
+        zipCode: zip,
         offerings,
       });
       onEnlisted(provider);
@@ -413,9 +413,10 @@ function EnlistForm({
         </label>
         <p className="small muted" style={{ margin: '8px 0 0' }}>
           {distance
-            ? `We match you with riders within ${distance.pickupTiersMiles[0]} miles of you first, and
-               only send you further when nobody closer to them is free — never more than
-               ${distance.maxPickupMiles} miles to a pickup. San Diego County for now.`
+            ? `We match riders with whoever is nearest them. Spreading the work only ever picks
+               between drivers within about ${formatMiles(distance.fairnessMaxExtraKm)} of each other,
+               so it never sends you further — and you will only be offered rides within about
+               ${formatMiles(distance.serviceRadiusKm)} of your ZIP. San Diego County for now.`
             : 'We match you to rides near here — you don\u2019t need to work out a radius. San Diego County for now.'}
         </p>
       </div>

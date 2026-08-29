@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getCatalog, getProviders, type Catalog, type Provider, type ServiceType } from '@/lib/api';
-import { BRANCH_LABELS } from '@/lib/format';
+import { BRANCH_LABELS, formatMiles } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,11 +82,10 @@ export default async function HomePage() {
             <li>
               <strong>Requests route to you.</strong>
               <p className="muted small">
-                One block, one job. We match you with riders within{' '}
-                {distance?.pickupTiersMiles[0] ?? 10} miles of you first, and only send you further
-                when nobody closer to them is free — never past {distance?.maxPickupMiles ?? 30}{' '}
-                miles. Work spreads toward whoever has been idle, so nobody carries the whole
-                network.
+                One block, one job. The rider goes to whoever is nearest them. Spreading the work
+                only ever picks between drivers within about{' '}
+                {distance ? formatMiles(distance.fairnessMaxExtraKm) : '2 miles'} of each other, so
+                nobody is sent further just to even out the load.
               </p>
             </li>
             <li>
@@ -117,7 +116,9 @@ export default async function HomePage() {
           </div>
           <p className="mono muted" style={{ marginTop: 16 }}>
             {serviceTypes[0]
-              ? `Typical trip: ${serviceTypes[0].defaultDurationMinutes} minutes. Pickups stay within ${distance?.maxPickupMiles ?? 30} miles of your ZIP.`
+              ? `Typical trip: ${serviceTypes[0].defaultDurationMinutes} minutes. Pickups stay within about ${
+                  distance ? formatMiles(distance.serviceRadiusKm) : '16 miles'
+                } of your ZIP.`
               : 'Pickups stay close to your ZIP.'}
           </p>
 

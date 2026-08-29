@@ -20,10 +20,10 @@ export interface Catalog {
   branches: Branch[];
   matchWeights: Record<string, number>;
   distance: {
-    /** Furthest a veteran will ever be sent to a pickup. */
-    maxPickupMiles: number;
-    /** Radii searched in order, closest first. */
-    pickupTiersMiles: number[];
+    /** How far from their ZIP a veteran gets matched. */
+    serviceRadiusKm: number;
+    /** Fairness only reorders drivers within this much of the closest one. */
+    fairnessMaxExtraKm: number;
   };
 }
 
@@ -46,9 +46,6 @@ export interface Provider {
   offerings: Offering[];
   email?: string;
   phone?: string;
-  /** Only present on the veteran's own view of their profile. */
-  zip?: string;
-  serviceRadiusKm?: number;
 }
 
 export interface Slot {
