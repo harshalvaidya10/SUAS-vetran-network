@@ -1,0 +1,538 @@
+/*
+ * VetNet — a "field manual" look: paper ground, ink text, olive accent, hard
+ * corners and rule lines. Deliberately not the rounded-pill SaaS default.
+ */
+:root {
+  --paper: #f4f2ec;
+  --paper-raised: #fbfaf7;
+  --ink: #1b1e1c;
+  --ink-soft: #5a615b;
+  --ink-faint: #8b918b;
+  --rule: #d8d4c8;
+  --olive: #47603c;
+  --olive-dim: #6d8560;
+  --amber: #b26b21;
+  --danger: #97291f;
+  --shadow: 0 1px 0 var(--rule), 0 12px 28px -22px rgba(27, 30, 28, 0.65);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--olive);
+  text-underline-offset: 3px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.1rem, 5vw, 3.2rem);
+}
+h2 {
+  font-size: 1.5rem;
+}
+h3 {
+  font-size: 1.1rem;
+}
+
+.shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+/* --- masthead ---------------------------------------------------------- */
+
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 40px;
+}
+
+.masthead-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.wordmark {
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.wordmark::before {
+  content: "";
+  width: 10px;
+  height: 18px;
+  background: var(--olive);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 76%, 0 100%);
+}
+
+.masthead nav {
+  display: flex;
+  gap: 22px;
+  margin-left: auto;
+}
+
+.masthead nav a {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+.masthead nav a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* --- shared bits ------------------------------------------------------- */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 10px;
+}
+
+.lede {
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+
+.card {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.card + .card {
+  margin-top: 18px;
+}
+
+.split {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.section-rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 40px 0 28px;
+}
+
+/* --- forms ------------------------------------------------------------- */
+
+label.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/*
+ * Fields only share width inside a horizontal .row. In a .stack the main axis
+ * is vertical, where a flex-basis would stretch every field to 180px tall.
+ */
+.row > .field {
+  flex: 1 1 180px;
+}
+
+.field > span {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 9px 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--olive);
+  outline-offset: -1px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+/* Specific enough to beat `label.field`'s column direction. */
+label.field.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.checkbox input {
+  width: auto;
+  accent-color: var(--olive);
+}
+
+.checkbox span {
+  text-transform: none;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+button {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 11px 20px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  transition: transform 0.06s ease, background 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--olive);
+  border-color: var(--olive);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: progress;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+button.ghost:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+button.small {
+  padding: 6px 12px;
+  font-size: 0.68rem;
+}
+
+/* --- badges, alerts ---------------------------------------------------- */
+
+.tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule);
+  padding: 2px 7px;
+  color: var(--ink-soft);
+  background: var(--paper);
+}
+
+.tag.olive {
+  border-color: var(--olive-dim);
+  color: var(--olive);
+}
+
+.tag.amber {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.tag.muted {
+  color: var(--ink-faint);
+}
+
+.alert {
+  border-left: 3px solid var(--amber);
+  background: #fdf7ef;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+}
+
+.alert.error {
+  border-left-color: var(--danger);
+  background: #fdf1f0;
+}
+
+.alert.ok {
+  border-left-color: var(--olive);
+  background: #f1f5ee;
+}
+
+.alert ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* --- match result ------------------------------------------------------ */
+
+.match-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.score {
+  font-family: var(--mono);
+  font-size: 2rem;
+  color: var(--olive);
+  line-height: 1;
+}
+
+.score small {
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 0;
+}
+
+.fact dt {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 3px;
+}
+
+.fact dd {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.bars {
+  display: grid;
+  gap: 7px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 118px 1fr 34px;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.bar-track {
+  height: 6px;
+  background: var(--rule);
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--olive-dim);
+}
+
+.list-reset {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.line-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+}
+
+.line-item:last-child {
+  border-bottom: 0;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+/* --- landing ----------------------------------------------------------- */
+
+.hero {
+  padding: 26px 0 12px;
+}
+
+.paths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+  margin-top: 34px;
+}
+
+.path {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  padding: 26px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.path:hover {
+  border-color: var(--olive);
+  transform: translateY(-2px);
+}
+
+.path h2 {
+  margin-bottom: 8px;
+}
+
+.path .go {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--olive);
+  margin-top: 14px;
+  display: inline-block;
+}
+
+.steps {
+  counter-reset: step;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 22px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.steps li {
+  counter-increment: step;
+  border-top: 2px solid var(--ink);
+  padding-top: 12px;
+}
+
+.steps li::before {
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--amber);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .bar-row {
+    grid-template-columns: 96px 1fr 30px;
+  }
+}
