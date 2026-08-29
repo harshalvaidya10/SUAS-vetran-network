@@ -70,34 +70,6 @@ export interface Booking {
   provider?: Provider;
 }
 
-export interface Candidate {
-  provider: Provider;
-  slotId: string;
-  startsAt: string;
-  endsAt: string;
-  distanceKm: number;
-  rateType: 'volunteer' | 'hourly';
-  estimatedCostUsd: number;
-  score: number;
-  recentRideCount: number;
-  withinFairnessGuardrail: boolean;
-  scoreBreakdown: Record<string, number>;
-}
-
-export interface MatchResponse {
-  requestId: string;
-  status: 'matched' | 'no_match';
-  message?: string;
-  booking: Booking | null;
-  match: Candidate | null;
-  alternatives: Candidate[];
-  diagnostics?: {
-    providersConsidered: number;
-    matchedProviders: number;
-    rejections: Record<string, number>;
-  };
-}
-
 export class ApiError extends Error {
   constructor(
     message: string,

@@ -497,6 +497,26 @@ button.small {
   display: inline-block;
 }
 
+/* Link that carries the weight of a primary button. */
+.cta {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 13px 24px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cta:hover {
+  background: var(--olive);
+  border-color: var(--olive);
+}
+
 .steps {
   counter-reset: step;
   display: grid;
