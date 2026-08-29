@@ -3,9 +3,9 @@ import Link from 'next/link';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'VetNet — the veteran service network',
+  title: 'VetNet — put your hours on the board',
   description:
-    'Veterans commit to slots. Neighbors ask for help. One call matches them.',
+    'Veterans list what they can do and commit to blocks of time. Requests route to whoever committed.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               VetNet
             </Link>
             <nav>
-              <Link href="/request">Request help</Link>
               <Link href="/serve">Sign up to serve</Link>
             </nav>
           </div>

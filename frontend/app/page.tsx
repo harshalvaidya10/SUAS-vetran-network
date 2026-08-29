@@ -19,45 +19,30 @@ async function loadNetwork(): Promise<{
 
 export default async function HomePage() {
   const { serviceTypes, providers, offline } = await loadNetwork();
-  const volunteers = providers.filter((p) =>
-    p.offerings.some((o) => o.rateType === 'volunteer'),
-  ).length;
+  const committedHours = providers.length;
 
   return (
     <>
       <section className="hero">
-        <p className="eyebrow">A network that runs on people who already volunteered once</p>
+        <p className="eyebrow">For veterans who still have hours to give</p>
         <h1>
-          Veterans commit to the hours they have.
+          Put your hours on the board.
           <br />
-          We find the one who can be there.
+          We&apos;ll bring you the work.
         </h1>
         <p className="lede" style={{ marginTop: 16 }}>
-          Ask for a ride, a hand moving, a look at the furnace, or someone to sit with. One request
-          searches the whole roster — who does that work, who is nearby, and who actually put the
-          time on their calendar — and comes back with a confirmed name.
+          Somewhere nearby a veteran needs a ride — to the VA, to a job interview, to the airport at
+          five in the morning. They tap one button. We find whoever committed to that hour, close
+          enough to get there — and that is where you come in.
         </p>
 
-        <div className="paths">
-          <Link href="/request" className="path">
-            <p className="eyebrow">For anyone who needs a hand</p>
-            <h2>Request help</h2>
-            <p className="muted small">
-              Say what you need, where, and when you are free. You get a matched veteran and their
-              number, not a queue ticket.
-            </p>
-            <span className="go">Find a match →</span>
+        <div className="row" style={{ marginTop: 30, alignItems: 'center', gap: 18 }}>
+          <Link href="/serve" className="cta">
+            Sign up to serve →
           </Link>
-
-          <Link href="/serve" className="path">
-            <p className="eyebrow">For veterans</p>
-            <h2>Sign up to serve</h2>
-            <p className="muted small">
-              List what you can do, then commit to real blocks of time. Nobody is matched to you
-              outside the hours you promised.
-            </p>
-            <span className="go">Commit a slot →</span>
-          </Link>
+          <span className="mono muted">
+            {committedHours > 0 ? `${committedHours} veterans already on the board` : 'Be the first on the board'}
+          </span>
         </div>
       </section>
 
@@ -72,79 +57,105 @@ export default async function HomePage() {
       ) : (
         <>
           <hr className="section-rule" />
-          <p className="eyebrow">How it works</p>
+          <p className="eyebrow">What you are agreeing to</p>
           <ol className="steps">
             <li>
-              <strong>Veterans enlist.</strong>
+              <strong>Say what you can do.</strong>
               <p className="muted small">
-                Branch, years, what they can do, how far they will travel, and whether they charge.
+                Your branch, your years, the work you are good at, how far you will travel, and
+                whether you are volunteering or charging for it.
               </p>
             </li>
             <li>
-              <strong>They commit slots.</strong>
+              <strong>Commit blocks of time.</strong>
               <p className="muted small">
-                A slot is a promise, not a preference. One slot, one job — so a match is a real
-                answer.
+                A block is a promise, not a preference. Nothing reaches you outside the hours you put
+                on the board.
               </p>
             </li>
             <li>
-              <strong>One request matches.</strong>
+              <strong>Requests route to you.</strong>
               <p className="muted small">
-                The API ranks by distance, rating, how soon they can start, and who has been idle
-                longest.
+                One block, one job. We send the closest veteran who committed — and spread work
+                toward whoever has been idle, so nobody carries the whole network.
               </p>
             </li>
             <li>
-              <strong>The slot is claimed.</strong>
+              <strong>You get their details.</strong>
               <p className="muted small">
-                Contact details are exchanged only once the booking exists. The rest of the roster
-                stays private.
+                Name, number, where to go, and what they need. Mark it done when it is done. Withdraw
+                a block any time before someone claims it.
               </p>
             </li>
           </ol>
 
           <hr className="section-rule" />
-          <div className="match-head" style={{ marginBottom: 18 }}>
-            <div>
-              <p className="eyebrow">On the network right now</p>
-              <h2>
-                {providers.length} veterans · {volunteers} taking volunteer work ·{' '}
-                {serviceTypes.length} kinds of help
-              </h2>
-            </div>
-            <Link href="/request" className="mono">
-              Ask for something →
-            </Link>
-          </div>
-
-          <div className="roster">
-            {providers.slice(0, 6).map((provider) => (
-              <article key={provider.id} className="card">
-                <div className="match-head">
-                  <h3>{provider.name}</h3>
-                  <span className="tag olive">
-                    {provider.rating ? `${provider.rating.toFixed(1)}★` : 'New'}
-                  </span>
-                </div>
-                <p className="mono muted" style={{ margin: '4px 0 10px' }}>
-                  {BRANCH_LABELS[provider.branch]} · {provider.yearsOfService} yrs ·{' '}
-                  {provider.servesFrom ?? 'location private'}
+          <p className="eyebrow">What people ask for</p>
+          <div className="roster" style={{ marginTop: 16 }}>
+            {[
+              ['VA appointments', 'The most common trip by far. Often an early start and a long wait.'],
+              ['Job interviews', 'Someone getting back on their feet, and one ride is what stands in the way.'],
+              ['Airport runs', 'A family arriving, a deployment ending, a funeral to get to.'],
+              ['Court and county offices', 'Benefits hearings, custody dates, the DMV. Places you cannot be late to.'],
+            ].map(([title, detail]) => (
+              <article key={title} className="card">
+                <h3>{title}</h3>
+                <p className="small muted" style={{ marginBottom: 0 }}>
+                  {detail}
                 </p>
-                <p className="small muted">{provider.bio}</p>
-                <div className="row" style={{ gap: 6, marginTop: 12 }}>
-                  {provider.offerings.map((offering) => (
-                    <span
-                      key={offering.serviceType}
-                      className={`tag ${offering.rateType === 'volunteer' ? 'olive' : ''}`}
-                    >
-                      {serviceTypes.find((s) => s.id === offering.serviceType)?.label ??
-                        offering.serviceType}
-                    </span>
-                  ))}
-                </div>
               </article>
             ))}
           </div>
+          <p className="mono muted" style={{ marginTop: 16 }}>
+            {serviceTypes[0]
+              ? `Typical trip: ${serviceTypes[0].defaultDurationMinutes} minutes. You set how far you will travel.`
+              : 'You set how far you will travel.'}
+          </p>
+
+          {providers.length > 0 ? (
+            <>
+              <hr className="section-rule" />
+              <div className="match-head" style={{ marginBottom: 18 }}>
+                <div>
+                  <p className="eyebrow">Who is already on</p>
+                  <h2>{providers.length} veterans taking work in San Diego County</h2>
+                </div>
+                <Link href="/serve" className="mono">
+                  Add your name →
+                </Link>
+              </div>
+
+              <div className="roster">
+                {providers.slice(0, 6).map((provider) => (
+                  <article key={provider.id} className="card">
+                    <div className="match-head">
+                      <h3>{provider.name}</h3>
+                      <span className="tag olive">
+                        {provider.rating ? `${provider.rating.toFixed(1)}★` : 'New'}
+                      </span>
+                    </div>
+                    <p className="mono muted" style={{ margin: '4px 0 10px' }}>
+                      {BRANCH_LABELS[provider.branch]} · {provider.yearsOfService} yrs ·{' '}
+                      {provider.servesFrom ?? 'location private'}
+                    </p>
+                    <p className="small muted">{provider.bio}</p>
+                    <div className="row" style={{ gap: 6, marginTop: 12 }}>
+                      {provider.offerings.map((offering) => (
+                        <span
+                          key={offering.serviceType}
+                          className={`tag ${offering.rateType === 'volunteer' ? 'olive' : ''}`}
+                        >
+                          {offering.rateType === 'volunteer'
+                            ? 'Volunteer'
+                            : `$${offering.hourlyRateUsd}/hr`}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
         </>
       )}
     </>

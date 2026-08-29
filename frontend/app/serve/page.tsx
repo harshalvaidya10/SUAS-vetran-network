@@ -116,7 +116,7 @@ export default function ServePage() {
       <p className="lede" style={{ marginTop: 14 }}>
         {providerId
           ? 'You are only matched inside the blocks you commit to. Withdraw a block any time before someone claims it.'
-          : 'Tell us what you can do and how far you will go. Then commit the blocks of time you can actually be there for.'}
+          : 'Tell us how far you will drive and on what terms. Then commit the blocks of time you can actually be there for.'}
       </p>
 
       {error ? (
@@ -297,27 +297,17 @@ function EnlistForm({
   const [phone, setPhone] = useState('');
   const [base, setBase] = useState<LocationValue>({ ...PRESETS[0]! });
   const [serviceRadiusKm, setServiceRadiusKm] = useState(30);
-  const [offerings, setOfferings] = useState<Record<string, Offering>>({});
+  const [rateType, setRateType] = useState<Offering['rateType']>('volunteer');
+  const [hourlyRateUsd, setHourlyRateUsd] = useState(0);
   const [pending, setPending] = useState(false);
 
-  function toggleOffering(serviceType: string, checked: boolean) {
-    setOfferings((current) => {
-      const next = { ...current };
-      if (checked) next[serviceType] = { serviceType, rateType: 'volunteer', hourlyRateUsd: 0 };
-      else delete next[serviceType];
-      return next;
-    });
-  }
-
-  function setRate(serviceType: string, patchValue: Partial<Offering>) {
-    setOfferings((current) => {
-      const existing = current[serviceType];
-      if (!existing) return current;
-      return { ...current, [serviceType]: { ...existing, ...patchValue } };
-    });
-  }
-
-  const chosen = Object.values(offerings);
+  // Driving is the whole MVP catalog, so there is nothing to pick — the offering
+  // is derived rather than chosen. Reads from the catalog so a second service
+  // later brings its own picker back rather than hardcoding an id here.
+  const service = catalog?.serviceTypes[0] ?? null;
+  const offerings: Offering[] = service
+    ? [{ serviceType: service.id, rateType, hourlyRateUsd: rateType === 'hourly' ? hourlyRateUsd : 0 }]
+    : [];
 
   async function submit() {
     setPending(true);
@@ -331,7 +321,7 @@ function EnlistForm({
         phone,
         base: { lat: base.lat, lng: base.lng, address: base.address || undefined },
         serviceRadiusKm,
-        offerings: chosen,
+        offerings,
       });
       onEnlisted(provider);
     } catch (caught) {
@@ -417,69 +407,53 @@ function EnlistForm({
 
       <div>
         <p className="eyebrow" style={{ marginBottom: 10 }}>
-          What can you do?
+          How you want to drive
         </p>
-        <ul className="list-reset">
-          {(catalog?.serviceTypes ?? []).map((type) => {
-            const offering = offerings[type.id];
-            return (
-              <li key={type.id} className="line-item">
-                <label className="field checkbox" style={{ flex: '1 1 240px' }}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(offering)}
-                    onChange={(e) => toggleOffering(type.id, e.target.checked)}
-                  />
-                  <span>
-                    {type.label}
-                    <br />
-                    <span className="muted small">{type.description}</span>
-                  </span>
-                </label>
-                {offering ? (
-                  <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                    <select
-                      style={{ width: 130 }}
-                      value={offering.rateType}
-                      onChange={(e) =>
-                        setRate(type.id, {
-                          rateType: e.target.value as Offering['rateType'],
-                          ...(e.target.value === 'volunteer' ? { hourlyRateUsd: 0 } : {}),
-                        })
-                      }
-                    >
-                      <option value="volunteer">Volunteer</option>
-                      <option value="hourly">Paid hourly</option>
-                    </select>
-                    {offering.rateType === 'hourly' ? (
-                      <input
-                        style={{ width: 90 }}
-                        type="number"
-                        min={0}
-                        max={500}
-                        value={offering.hourlyRateUsd}
-                        onChange={(e) =>
-                          setRate(type.id, { hourlyRateUsd: Number(e.target.value) })
-                        }
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+        <div className="card" style={{ boxShadow: 'none', padding: 16 }}>
+          <div>
+            <div>
+              <strong>{service?.label ?? 'Rides & transport'}</strong>
+              <p className="small muted" style={{ margin: '2px 0 0' }}>
+                {service?.description ?? 'Rides to VA appointments, the airport, job interviews.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="row" style={{ gap: 10, marginTop: 14 }}>
+            <label className="field" style={{ maxWidth: 170 }}>
+              <span>Terms</span>
+              <select
+                value={rateType}
+                onChange={(e) => setRateType(e.target.value as Offering['rateType'])}
+              >
+                <option value="volunteer">Volunteer</option>
+                <option value="hourly">Paid hourly</option>
+              </select>
+            </label>
+            {rateType === 'hourly' ? (
+              <label className="field" style={{ maxWidth: 150 }}>
+                <span>Your rate ($/hr)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  value={hourlyRateUsd}
+                  onChange={(e) => setHourlyRateUsd(Number(e.target.value))}
+                />
+              </label>
+            ) : (
+              <p className="small muted" style={{ alignSelf: 'center', margin: 0 }}>
+                Riders are told up front that you drive for free.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       <div>
-        <button type="submit" disabled={pending || chosen.length === 0}>
+        <button type="submit" disabled={pending || offerings.length === 0}>
           {pending ? 'Enlisting…' : 'Join the network'}
         </button>
-        {chosen.length === 0 ? (
-          <span className="mono muted" style={{ marginLeft: 12 }}>
-            pick at least one service
-          </span>
-        ) : null}
       </div>
     </form>
   );
@@ -500,23 +474,15 @@ function CommitSlotForm({
 }) {
   const [startsAt, setStartsAt] = useState(tomorrowAt(9));
   const [endsAt, setEndsAt] = useState(tomorrowAt(13));
-  const [selected, setSelected] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
 
-  // Fall back to the whole catalog when we don't have the profile in memory —
-  // the API rejects anything the veteran hasn't actually signed up to do.
-  const choices = offerings
+  // Every block is a driving block in the MVP. Fall back to the catalog when the
+  // profile isn't in memory yet — the API rejects anything the veteran hasn't
+  // actually signed up to do.
+  const serviceTypes = offerings
     ? offerings.map((offering) => offering.serviceType)
     : (catalog?.serviceTypes ?? []).map((type) => type.id);
-
-  function toggle(serviceType: string) {
-    setSelected((current) =>
-      current.includes(serviceType)
-        ? current.filter((value) => value !== serviceType)
-        : [...current, serviceType],
-    );
-  }
 
   async function submit() {
     setPending(true);
@@ -524,10 +490,9 @@ function CommitSlotForm({
       await post(`/api/v1/providers/${providerId}/slots`, {
         startsAt: fromLocalInput(startsAt),
         endsAt: fromLocalInput(endsAt),
-        serviceTypes: selected,
+        serviceTypes,
         ...(note ? { note } : {}),
       });
-      setSelected([]);
       setNote('');
       onCommitted();
     } catch (caught) {
@@ -567,26 +532,6 @@ function CommitSlotForm({
         </label>
       </div>
 
-      <div>
-        <p className="field" style={{ marginBottom: 8 }}>
-          <span>Cover which services?</span>
-        </p>
-        <div className="row" style={{ gap: 10 }}>
-          {choices.map((serviceType) => (
-            <label key={serviceType} className="field checkbox">
-              <input
-                type="checkbox"
-                checked={selected.includes(serviceType)}
-                onChange={() => toggle(serviceType)}
-              />
-              <span>
-                {catalog?.serviceTypes.find((type) => type.id === serviceType)?.label ?? serviceType}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
       <label className="field">
         <span>Note (optional)</span>
         <input
@@ -597,7 +542,7 @@ function CommitSlotForm({
       </label>
 
       <div>
-        <button type="submit" disabled={pending || selected.length === 0}>
+        <button type="submit" disabled={pending || serviceTypes.length === 0}>
           {pending ? 'Committing…' : 'Commit this block'}
         </button>
       </div>
