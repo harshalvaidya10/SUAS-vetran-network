@@ -79,6 +79,15 @@ class MemoryStore {
     return updated;
   }
 
+  /** Atomic enough for this single-process store: check and claim happen in one synchronous call. */
+  claimOpenSlot(id: string): AvailabilitySlot | undefined {
+    const slot = this.slots.get(id);
+    if (!slot || slot.status !== 'open') return undefined;
+    const claimed = { ...slot, status: 'booked' as const };
+    this.slots.set(id, claimed);
+    return claimed;
+  }
+
   // --- bookings ----------------------------------------------------------
 
   createBooking(input: Omit<Booking, 'id' | 'createdAt'>): Booking {

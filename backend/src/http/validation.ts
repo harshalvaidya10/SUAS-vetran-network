@@ -1,20 +1,18 @@
 import { z } from 'zod';
 import { ApiError } from './errors.js';
 import { MILITARY_BRANCHES, SERVICE_TYPE_IDS } from '../domain/serviceCatalog.js';
-import { MAX_PICKUP_KM } from '../domain/distancePolicy.js';
 
-const isoDateTime = z
-  .string()
-  .refine((value) => !Number.isNaN(new Date(value).getTime()), 'Must be an ISO-8601 date-time');
+const isoDateTime = z.string().datetime({ offset: true });
 
-export const zipSchema = z
+export const zipCodeSchema = z
   .string()
   .trim()
-  .regex(/^\d{5}$/, 'Enter a 5-digit ZIP code');
+  .regex(/^\d{5}(?:-\d{4})?$/, 'Must be a 5-digit US ZIP code');
 
 export const placeSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  zipCode: zipCodeSchema.optional(),
   address: z.string().trim().min(1).max(200).optional(),
 });
 
@@ -31,7 +29,9 @@ export const providerCreateSchema = z.object({
   bio: z.string().trim().max(500).default(''),
   email: z.string().email(),
   phone: z.string().trim().min(7).max(30),
-  zip: zipSchema,
+  base: placeSchema,
+  zipCode: zipCodeSchema.optional(),
+  serviceRadiusKm: z.number().min(1).max(200).default(25),
   offerings: z.array(offeringSchema).min(1, 'Pick at least one service you can provide'),
 });
 
@@ -39,7 +39,8 @@ export const providerUpdateSchema = z
   .object({
     active: z.boolean(),
     bio: z.string().trim().max(500),
-    zip: zipSchema,
+    serviceRadiusKm: z.number().min(1).max(200),
+    zipCode: zipCodeSchema,
     offerings: z.array(offeringSchema).min(1),
   })
   .partial();
@@ -60,6 +61,7 @@ export const slotCreateSchema = z
 const requesterSchema = z
   .object({
     name: z.string().trim().min(2).max(80),
+    veteran: z.literal(true, { errorMap: () => ({ message: 'Rides are currently for veterans' }) }),
     email: z.string().email().optional(),
     phone: z.string().trim().min(7).max(30).optional(),
   })
@@ -74,24 +76,16 @@ const requesterSchema = z
  */
 export const serviceRequestSchema = z.object({
   serviceType: z.enum(SERVICE_TYPE_IDS),
-  location: placeSchema,
+  pickupZip: zipCodeSchema,
+  /** Optional compatibility/display detail; matching uses pickupZip. */
+  location: placeSchema.optional(),
   requester: requesterSchema,
   /** Defaults to "from now until 7 days out". */
   window: z
     .object({ startsAt: isoDateTime.optional(), endsAt: isoDateTime.optional() })
     .optional(),
   durationMinutes: z.number().int().min(15).max(600).optional(),
-  /**
-   * A requester may ask us to look less far, never further: the network's
-   * pickup ceiling wins. Clamped rather than rejected so a client that asks for
-   * a wider search still gets an answer.
-   */
-  maxDistanceKm: z
-    .number()
-    .min(1)
-    .max(500)
-    .default(MAX_PICKUP_KM)
-    .transform((km) => Math.min(km, MAX_PICKUP_KM)),
+  maxDistanceKm: z.number().min(1).max(200).default(40),
   preferences: z
     .object({
       minRating: z.number().min(0).max(5).optional(),

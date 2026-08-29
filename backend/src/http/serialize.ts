@@ -17,20 +17,15 @@ export function publicProvider(provider: Provider) {
     rating: provider.rating,
     completedJobs: provider.completedJobs,
     verified: provider.verified,
-    servesFrom: provider.base.address ?? null,
+    // ZIP is useful for a coarse service area; exact base coordinates stay private.
+    servesFrom: provider.zipCode ?? provider.base.zipCode ?? null,
     offerings: provider.offerings,
   };
 }
 
 /** Adds contact details; only used once a booking ties the two people together. */
 export function providerWithContact(provider: Provider) {
-  return {
-    ...publicProvider(provider),
-    email: provider.email,
-    phone: provider.phone,
-    zip: provider.zip,
-    serviceRadiusKm: provider.serviceRadiusKm,
-  };
+  return { ...publicProvider(provider), email: provider.email, phone: provider.phone };
 }
 
 export function serializeSlot(slot: AvailabilitySlot) {
@@ -41,7 +36,9 @@ export function serializeSlot(slot: AvailabilitySlot) {
     endsAt: slot.endsAt,
     serviceTypes: slot.serviceTypes,
     status: slot.status,
-    origin: slot.origin ?? null,
+    origin: slot.origin
+      ? { zipCode: slot.origin.zipCode ?? null, address: slot.origin.address ?? null }
+      : null,
     note: slot.note ?? null,
   };
 }
@@ -60,10 +57,12 @@ export function serializeCandidate(candidate: Candidate) {
     slotId: candidate.slot.id,
     startsAt: candidate.startsAt,
     endsAt: candidate.endsAt,
-    distanceKm: candidate.distanceKm,
+    distanceKm: Math.round(candidate.distanceKm * 10) / 10,
     rateType: candidate.offering.rateType,
     estimatedCostUsd: candidate.estimatedCostUsd,
     score: candidate.score,
+    recentRideCount: candidate.recentRideCount,
+    withinFairnessGuardrail: candidate.withinFairnessGuardrail,
     scoreBreakdown: candidate.scoreBreakdown,
   };
 }

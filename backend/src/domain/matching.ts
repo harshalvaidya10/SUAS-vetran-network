@@ -1,35 +1,36 @@
-import { distanceKm } from './geo.js';
-import { kmToMiles, pickupTiersKm } from './distancePolicy.js';
+import { distanceKm, isValidGeoPoint } from './geo.js';
+import { getZipCoordinates } from './zipGeo.js';
 import type { MilitaryBranch, ServiceTypeId } from './serviceCatalog.js';
-import type { AvailabilitySlot, Place, Provider, ServiceOffering } from '../types.js';
+import type {
+  AvailabilitySlot,
+  Booking,
+  GeoPoint,
+  Place,
+  Provider,
+  ServiceOffering,
+} from '../types.js';
 
-/** Unrated providers aren't punished for being new, but don't outrank proven ones. */
 const DEFAULT_RATING = 4.5;
-/** Completed jobs at which the reliability component saturates. */
-const RELIABILITY_CEILING = 25;
-/** Bookings in the trailing week at which a provider stops getting the spread-the-work boost. */
-const LOAD_CEILING = 5;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * Weights sum to 1. They encode the network's priorities, in order: send the
- * closest capable veteran, prefer the ones the community rates well, and spread
- * work across the roster instead of burning out the same three people.
- */
+/** Fairness may reorder only drivers within about two miles of the closest candidate. */
+export const FAIRNESS_MAX_EXTRA_KM = 3.2;
+
+/** Availability is filtered first; these weights rank only fully eligible drivers. */
 export const SCORE_WEIGHTS = {
-  proximity: 0.3,
-  rating: 0.2,
-  promptness: 0.15,
-  workloadBalance: 0.15,
+  proximity: 0.65,
+  workloadFairness: 0.25,
   reliability: 0.1,
-  slotFit: 0.1,
 } as const;
 
 export type ScoreComponent = keyof typeof SCORE_WEIGHTS;
 
 export interface MatchCriteria {
   serviceType: ServiceTypeId;
-  location: Place;
+  /** ZIP centroid is preferred; location remains for display and backwards-compatible storage. */
+  pickupZip: string;
+  location?: Place;
+  /** For rides this is the exact requested pickup time, not a flexible search window. */
   windowStartsAt: string;
   windowEndsAt: string;
   durationMinutes: number;
@@ -38,7 +39,6 @@ export interface MatchCriteria {
   preferredBranch?: MilitaryBranch;
   maxHourlyRateUsd?: number;
   volunteerOnly?: boolean;
-  /** Ask for a specific veteran; everything else still has to check out. */
   providerId?: string;
   limit?: number;
 }
@@ -46,7 +46,8 @@ export interface MatchCriteria {
 export interface MatchContext {
   providers: Provider[];
   slots: AvailabilitySlot[];
-  /** providerId -> bookings created in the trailing 7 days. */
+  bookings: Pick<Booking, 'providerId' | 'startsAt' | 'endsAt' | 'status'>[];
+  /** providerId -> confirmed/completed rides assigned in the trailing 7 days. */
   recentBookingCounts: Map<string, number>;
   now?: Date;
 }
@@ -59,6 +60,8 @@ export interface Candidate {
   startsAt: string;
   endsAt: string;
   estimatedCostUsd: number;
+  recentRideCount: number;
+  withinFairnessGuardrail: boolean;
   /** 0-100. */
   score: number;
   scoreBreakdown: Record<ScoreComponent, number>;
@@ -70,15 +73,27 @@ export type RejectionReason =
   | 'rating_below_minimum'
   | 'branch_mismatch'
   | 'rate_too_high'
-  | 'out_of_range'
-  | 'no_overlapping_slot';
+  | 'invalid_zip'
+  | 'outside_search_radius'
+  | 'no_open_slot'
+  | 'no_valid_availability'
+  | 'ride_exceeds_slot'
+  | 'overlapping_booking'
+  | 'request_in_past'
+  | 'invalid_duration';
 
 export interface MatchResult {
   candidates: Candidate[];
-  /** Providers that cleared every filter and produced at least one candidate. */
   matchedProviders: number;
-  /** Why the rest dropped out — the honest answer to "why did nobody match?". */
   rejections: Record<RejectionReason, number>;
+}
+
+interface EligibleCandidate {
+  provider: Provider;
+  slot: AvailabilitySlot;
+  offering: ServiceOffering;
+  distanceKm: number;
+  recentRideCount: number;
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
@@ -90,8 +105,14 @@ function emptyRejections(): Record<RejectionReason, number> {
     rating_below_minimum: 0,
     branch_mismatch: 0,
     rate_too_high: 0,
-    out_of_range: 0,
-    no_overlapping_slot: 0,
+    invalid_zip: 0,
+    outside_search_radius: 0,
+    no_open_slot: 0,
+    no_valid_availability: 0,
+    ride_exceeds_slot: 0,
+    overlapping_booking: 0,
+    request_in_past: 0,
+    invalid_duration: 0,
   };
 }
 
@@ -103,52 +124,61 @@ function hourlyRate(offering: ServiceOffering): number {
   return offering.rateType === 'volunteer' ? 0 : offering.hourlyRateUsd;
 }
 
-/**
- * Finds the earliest sub-window of `durationMinutes` that fits inside both the
- * committed slot and the requester's window, never starting in the past.
- */
-function fitWithinSlot(
-  slot: AvailabilitySlot,
-  criteria: MatchCriteria,
-  now: Date,
-): { startsAt: Date; endsAt: Date } | null {
-  const durationMs = criteria.durationMinutes * 60_000;
-  const earliest = Math.max(
-    new Date(slot.startsAt).getTime(),
-    new Date(criteria.windowStartsAt).getTime(),
-    now.getTime(),
-  );
-  const latest = Math.min(new Date(slot.endsAt).getTime(), new Date(criteria.windowEndsAt).getTime());
-
-  if (!Number.isFinite(earliest) || !Number.isFinite(latest)) return null;
-  if (latest - earliest < durationMs) return null;
-
-  return { startsAt: new Date(earliest), endsAt: new Date(earliest + durationMs) };
+function preferredCoordinates(place: Place | undefined, zipCode?: string): GeoPoint | null {
+  if (zipCode) return getZipCoordinates(zipCode);
+  if (place?.zipCode) return getZipCoordinates(place.zipCode);
+  return isValidGeoPoint(place) ? place : null;
 }
 
-/**
- * Pure matching pass: given the roster, the open slots and the ask, return the
- * ranked candidates. No I/O, so the ranking is straightforward to test and to
- * reason about when someone asks why they got the veteran they got.
- */
+function intervalsOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return aStart < bEnd && aEnd > bStart;
+}
+
+function hasOverlappingBooking(
+  providerId: string,
+  requestedStart: number,
+  requestedEnd: number,
+  bookings: MatchContext['bookings'],
+): boolean {
+  return bookings.some((booking) => {
+    if (booking.providerId !== providerId || booking.status !== 'confirmed') return false;
+    const startsAt = new Date(booking.startsAt).getTime();
+    const endsAt = new Date(booking.endsAt).getTime();
+    return (
+      Number.isFinite(startsAt) &&
+      Number.isFinite(endsAt) &&
+      intervalsOverlap(requestedStart, requestedEnd, startsAt, endsAt)
+    );
+  });
+}
+
+/** Pure, deterministic ride matcher. Hard constraints are never traded for score. */
 export function findMatches(criteria: MatchCriteria, context: MatchContext): MatchResult {
   const now = context.now ?? new Date();
   const rejections = emptyRejections();
-  const candidates: Candidate[] = [];
-  const matched = new Set<string>();
-
-  const openSlotsByProvider = new Map<string, AvailabilitySlot[]>();
-  for (const slot of context.slots) {
-    if (slot.status !== 'open') continue;
-    if (!slot.serviceTypes.includes(criteria.serviceType)) continue;
-    const list = openSlotsByProvider.get(slot.providerId);
-    if (list) list.push(slot);
-    else openSlotsByProvider.set(slot.providerId, [slot]);
-  }
-
-  const windowStart = new Date(criteria.windowStartsAt).getTime();
+  const eligible: EligibleCandidate[] = [];
+  const requestedStart = new Date(criteria.windowStartsAt).getTime();
   const windowEnd = new Date(criteria.windowEndsAt).getTime();
-  const windowSpanMs = Math.max(1, windowEnd - windowStart);
+  const durationMs = criteria.durationMinutes * 60_000;
+  const requestedEnd = requestedStart + durationMs;
+  const pickup = getZipCoordinates(criteria.pickupZip);
+
+  if (!pickup) {
+    rejections.invalid_zip = 1;
+    return { candidates: [], matchedProviders: 0, rejections };
+  }
+  if (!Number.isFinite(criteria.durationMinutes) || criteria.durationMinutes <= 0) {
+    rejections.invalid_duration = 1;
+    return { candidates: [], matchedProviders: 0, rejections };
+  }
+  if (!Number.isFinite(requestedStart) || requestedStart < now.getTime()) {
+    rejections.request_in_past = 1;
+    return { candidates: [], matchedProviders: 0, rejections };
+  }
+  if (!Number.isFinite(windowEnd) || requestedEnd > windowEnd) {
+    rejections.no_valid_availability = 1;
+    return { candidates: [], matchedProviders: 0, rejections };
+  }
 
   for (const provider of context.providers) {
     if (criteria.providerId && provider.id !== criteria.providerId) continue;
@@ -158,160 +188,174 @@ export function findMatches(criteria: MatchCriteria, context: MatchContext): Mat
       continue;
     }
 
-    const offering = provider.offerings.find((o) => o.serviceType === criteria.serviceType);
+    const offering = provider.offerings.find((item) => item.serviceType === criteria.serviceType);
     if (!offering) {
       rejections.service_not_offered += 1;
       continue;
     }
-
     if (criteria.minRating !== undefined && effectiveRating(provider) < criteria.minRating) {
       rejections.rating_below_minimum += 1;
       continue;
     }
-
     if (criteria.preferredBranch && provider.branch !== criteria.preferredBranch) {
       rejections.branch_mismatch += 1;
       continue;
     }
 
     const rate = hourlyRate(offering);
-    if (criteria.volunteerOnly && offering.rateType !== 'volunteer') {
+    if (
+      (criteria.volunteerOnly && offering.rateType !== 'volunteer') ||
+      (criteria.maxHourlyRateUsd !== undefined && rate > criteria.maxHourlyRateUsd)
+    ) {
       rejections.rate_too_high += 1;
       continue;
     }
-    if (criteria.maxHourlyRateUsd !== undefined && rate > criteria.maxHourlyRateUsd) {
-      rejections.rate_too_high += 1;
+
+    const providerSlots = context.slots.filter(
+      (slot) => slot.providerId === provider.id && slot.serviceTypes.includes(criteria.serviceType),
+    );
+    const openSlots = providerSlots.filter((slot) => slot.status === 'open');
+    if (openSlots.length === 0) {
+      rejections.no_open_slot += 1;
       continue;
     }
 
-    const slots = openSlotsByProvider.get(provider.id) ?? [];
-    if (slots.length === 0) {
-      rejections.no_overlapping_slot += 1;
-      continue;
-    }
+    let sawStartInsideSlot = false;
+    let sawTooShortSlot = false;
+    let sawInvalidOrigin = false;
+    let sawInRange = false;
+    const validSlots: { slot: AvailabilitySlot; distanceKm: number }[] = [];
 
-    let anyInRange = false;
-    let anyFits = false;
+    for (const slot of openSlots) {
+      const slotStart = new Date(slot.startsAt).getTime();
+      const slotEnd = new Date(slot.endsAt).getTime();
+      if (!Number.isFinite(slotStart) || !Number.isFinite(slotEnd)) continue;
+      if (requestedStart < slotStart || requestedStart >= slotEnd) continue;
+      sawStartInsideSlot = true;
+      if (requestedEnd > slotEnd) {
+        sawTooShortSlot = true;
+        continue;
+      }
 
-    for (const slot of slots) {
-      const origin = slot.origin ?? provider.base;
-      const distance = distanceKm(origin, criteria.location);
+      const origin = preferredCoordinates(
+        slot.origin ?? provider.base,
+        slot.origin?.zipCode ?? provider.zipCode,
+      );
+      if (!origin) {
+        sawInvalidOrigin = true;
+        continue;
+      }
+      const distance = distanceKm(origin, pickup);
+      if (!Number.isFinite(distance)) {
+        sawInvalidOrigin = true;
+        continue;
+      }
       const reach = Math.min(provider.serviceRadiusKm, criteria.maxDistanceKm);
       if (distance > reach) continue;
-      anyInRange = true;
-
-      const fit = fitWithinSlot(slot, criteria, now);
-      if (!fit) continue;
-      anyFits = true;
-
-      const slotMinutes = Math.max(
-        1,
-        (new Date(slot.endsAt).getTime() - new Date(slot.startsAt).getTime()) / 60_000,
-      );
-      const recentBookings = context.recentBookingCounts.get(provider.id) ?? 0;
-
-      const breakdown: Record<ScoreComponent, number> = {
-        // Closer is better, measured against how far we were willing to look.
-        proximity: clamp01(1 - distance / Math.max(reach, 0.001)),
-        // 3.0 stars is the floor of usefulness, 5.0 the ceiling.
-        rating: clamp01((effectiveRating(provider) - 3) / 2),
-        // Sooner inside the requester's window is better.
-        promptness: clamp01(1 - (fit.startsAt.getTime() - windowStart) / windowSpanMs),
-        // Veterans who haven't worked lately go first.
-        workloadBalance: clamp01(1 - recentBookings / LOAD_CEILING),
-        reliability: clamp01(provider.completedJobs / RELIABILITY_CEILING),
-        // Prefer the slot the job actually fills, so long slots stay free for long jobs.
-        slotFit: clamp01(criteria.durationMinutes / slotMinutes),
-      };
-
-      const score = (Object.keys(SCORE_WEIGHTS) as ScoreComponent[]).reduce(
-        (total, key) => total + breakdown[key] * SCORE_WEIGHTS[key],
-        0,
-      );
-
-      matched.add(provider.id);
-      candidates.push({
-        provider,
-        slot,
-        offering,
-        distanceKm: Math.round(distance * 10) / 10,
-        startsAt: fit.startsAt.toISOString(),
-        endsAt: fit.endsAt.toISOString(),
-        estimatedCostUsd: Math.round(((rate * criteria.durationMinutes) / 60) * 100) / 100,
-        score: Math.round(score * 1000) / 10,
-        scoreBreakdown: breakdown,
-      });
+      sawInRange = true;
+      validSlots.push({ slot, distanceKm: distance });
     }
 
-    if (!anyInRange) rejections.out_of_range += 1;
-    else if (!anyFits) rejections.no_overlapping_slot += 1;
+    if (validSlots.length === 0) {
+      if (sawTooShortSlot) rejections.ride_exceeds_slot += 1;
+      else if (!sawStartInsideSlot) rejections.no_valid_availability += 1;
+      else if (sawInvalidOrigin) rejections.invalid_zip += 1;
+      else if (!sawInRange) rejections.outside_search_radius += 1;
+      else rejections.no_valid_availability += 1;
+      continue;
+    }
+
+    if (hasOverlappingBooking(provider.id, requestedStart, requestedEnd, context.bookings)) {
+      rejections.overlapping_booking += 1;
+      continue;
+    }
+
+    validSlots.sort(
+      (a, b) =>
+        a.distanceKm - b.distanceKm ||
+        new Date(a.slot.startsAt).getTime() - new Date(b.slot.startsAt).getTime() ||
+        a.slot.id.localeCompare(b.slot.id),
+    );
+    const best = validSlots[0]!;
+    eligible.push({
+      provider,
+      slot: best.slot,
+      offering,
+      distanceKm: best.distanceKm,
+      recentRideCount: context.recentBookingCounts.get(provider.id) ?? 0,
+    });
   }
+
+  if (eligible.length === 0) return { candidates: [], matchedProviders: 0, rejections };
+
+  const closestDistance = Math.min(...eligible.map((candidate) => candidate.distanceKm));
+  const guardrailLimit = closestDistance + FAIRNESS_MAX_EXTRA_KM;
+  const competition = eligible.filter((candidate) => candidate.distanceKm <= guardrailLimit);
+  const loads = competition.map((candidate) => candidate.recentRideCount);
+  const minLoad = Math.min(...loads);
+  const maxLoad = Math.max(...loads);
+
+  const candidates: Candidate[] = eligible.map((candidate) => {
+    const withinFairnessGuardrail = candidate.distanceKm <= guardrailLimit;
+    const workloadFairness = withinFairnessGuardrail
+      ? maxLoad === minLoad
+        ? 0.5
+        : 1 - (candidate.recentRideCount - minLoad) / (maxLoad - minLoad)
+      : 0;
+    const scoreBreakdown: Record<ScoreComponent, number> = {
+      proximity: clamp01(1 - candidate.distanceKm / Math.max(criteria.maxDistanceKm, 0.001)),
+      workloadFairness: clamp01(workloadFairness),
+      reliability: clamp01(effectiveRating(candidate.provider) / 5),
+    };
+    const total = (Object.keys(SCORE_WEIGHTS) as ScoreComponent[]).reduce(
+      (sum, component) => sum + scoreBreakdown[component] * SCORE_WEIGHTS[component],
+      0,
+    );
+
+    return {
+      ...candidate,
+      // Keep full precision for deterministic ranking; serializers round for display.
+      distanceKm: candidate.distanceKm,
+      startsAt: new Date(requestedStart).toISOString(),
+      endsAt: new Date(requestedEnd).toISOString(),
+      estimatedCostUsd:
+        Math.round(((hourlyRate(candidate.offering) * criteria.durationMinutes) / 60) * 100) / 100,
+      withinFairnessGuardrail,
+      score: Math.round(total * 1000) / 10,
+      scoreBreakdown,
+    };
+  });
 
   candidates.sort(
     (a, b) =>
+      Number(b.withinFairnessGuardrail) - Number(a.withinFairnessGuardrail) ||
       b.score - a.score ||
-      new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime() ||
       a.distanceKm - b.distanceKm ||
+      a.recentRideCount - b.recentRideCount ||
+      effectiveRating(b.provider) - effectiveRating(a.provider) ||
+      new Date(a.slot.startsAt).getTime() - new Date(b.slot.startsAt).getTime() ||
       a.provider.id.localeCompare(b.provider.id),
   );
 
-  // One candidate per veteran — their best slot — so the shortlist shows choice.
-  const seen = new Set<string>();
-  const deduped = candidates.filter((candidate) => {
-    if (seen.has(candidate.provider.id)) return false;
-    seen.add(candidate.provider.id);
-    return true;
-  });
-
   return {
-    candidates: deduped.slice(0, criteria.limit ?? 5),
-    matchedProviders: matched.size,
+    candidates: candidates.slice(0, criteria.limit ?? 5),
+    matchedProviders: eligible.length,
     rejections,
   };
 }
 
-/** Bookings a provider took in the trailing week, used for the workload nudge. */
+/** Confirmed and completed assignments count as workload; cancelled rides never do. */
 export function countRecentBookings(
   bookings: { providerId: string; createdAt: string; status: string }[],
   now = new Date(),
 ): Map<string, number> {
   const counts = new Map<string, number>();
   for (const booking of bookings) {
-    if (booking.status === 'cancelled') continue;
-    if (now.getTime() - new Date(booking.createdAt).getTime() > WEEK_MS) continue;
+    if (booking.status !== 'confirmed' && booking.status !== 'completed') continue;
+    const createdAt = new Date(booking.createdAt).getTime();
+    const age = now.getTime() - createdAt;
+    if (!Number.isFinite(createdAt) || age < 0 || age > WEEK_MS) continue;
     counts.set(booking.providerId, (counts.get(booking.providerId) ?? 0) + 1);
   }
   return counts;
-}
-
-export interface TieredMatchResult extends MatchResult {
-  /** How far out we ended up having to look, in miles. */
-  searchRadiusMiles: number;
-}
-
-/**
- * Closest-first matching. Runs the ranking inside a tight radius and widens
- * only when that radius came up empty, so proximity can't be outvoted by a
- * high rating twenty miles away. The rejection tally returned on a miss is the
- * one from the widest search, since that's the honest picture.
- */
-export function findMatchesTiered(
-  criteria: MatchCriteria,
-  context: MatchContext,
-): TieredMatchResult {
-  const tiers = pickupTiersKm(criteria.maxDistanceKm);
-  let widest: MatchResult | null = null;
-
-  for (const tierKm of tiers) {
-    const result = findMatches({ ...criteria, maxDistanceKm: tierKm }, context);
-    if (result.candidates.length > 0) {
-      return { ...result, searchRadiusMiles: Math.round(kmToMiles(tierKm)) };
-    }
-    widest = result;
-  }
-
-  return {
-    ...widest!,
-    searchRadiusMiles: Math.round(kmToMiles(tiers[tiers.length - 1]!)),
-  };
 }

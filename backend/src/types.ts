@@ -6,6 +6,8 @@ export interface GeoPoint {
 }
 
 export interface Place extends GeoPoint {
+  /** Coarse location used by ride matching; exact coordinates remain a compatibility fallback. */
+  zipCode?: string;
   address?: string;
 }
 
@@ -26,11 +28,11 @@ export interface Provider {
   bio: string;
   email: string;
   phone: string;
-  /** The ZIP they gave us at sign-up — the only location we ask them for. */
-  zip: string;
-  /** Centroid of `zip`; what distance to the requester is measured from. */
+  /** Where they start from; used for distance to the requester. */
   base: Place;
-  /** How far we'll match them from `base`. Network policy, not their input. */
+  /** Preferred coarse origin for matching without exposing a home address. */
+  zipCode?: string;
+  /** How far they are willing to travel from `base`. */
   serviceRadiusKm: number;
   offerings: ServiceOffering[];
   /** 0-5. New providers start unrated and are treated as 4.5 by the matcher. */
@@ -67,6 +69,8 @@ export type BookingStatus = 'confirmed' | 'completed' | 'cancelled';
 
 export interface Requester {
   name: string;
+  /** MVP self-attestation; replace with identity verification in production. */
+  veteran: true;
   email?: string;
   phone?: string;
 }
@@ -94,6 +98,7 @@ export interface ServiceRequestRecord {
   serviceType: ServiceTypeId;
   requester: Requester;
   location: Place;
+  pickupZip: string;
   windowStartsAt: string;
   windowEndsAt: string;
   durationMinutes: number;

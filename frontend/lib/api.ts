@@ -58,7 +58,7 @@ export interface Slot {
   endsAt: string;
   serviceTypes: string[];
   status: 'open' | 'booked' | 'cancelled';
-  origin: { lat: number; lng: number; address?: string } | null;
+  origin: { zipCode: string | null; address: string | null } | null;
   note: string | null;
 }
 
@@ -68,8 +68,8 @@ export interface Booking {
   slotId: string;
   serviceType: string;
   serviceLabel: string;
-  requester: { name: string; email?: string; phone?: string };
-  location: { lat: number; lng: number; address?: string };
+  requester: { name: string; veteran: true; email?: string; phone?: string };
+  location: { lat: number; lng: number; zipCode?: string; address?: string };
   startsAt: string;
   endsAt: string;
   status: 'confirmed' | 'completed' | 'cancelled';

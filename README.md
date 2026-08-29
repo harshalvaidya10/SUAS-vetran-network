@@ -1,8 +1,8 @@
 # VetNet
 
-An on-demand service network for the veteran community. Veterans sign up and **commit to
-blocks of time**; a request arrives as **one API call** that searches the roster, intersects it
-with committed availability, ranks the matches and books the best one.
+An on-demand ride network for the veteran community. Veteran drivers **commit availability
+blocks**; a veteran rider makes **one API call** that checks exact ride coverage, ZIP proximity,
+and fair workload distribution before booking one driver.
 
 **MVP scope: driving only.** The catalog is a single service (`rides`), so the whole product
 is "a veteran needs a ride, another veteran drives them". The `serviceType` field, its type
@@ -38,7 +38,7 @@ Config: copy `backend/.env.example` → `backend/.env` and `frontend/.env.local.
 `frontend/.env.local` if you need to change ports or origins.
 
 ```bash
-npm test                        # matching-engine unit tests (10)
+npm test                        # matching-engine and route tests
 npm run build                   # tsc for the API, next build for the web app
 ```
 
@@ -57,9 +57,10 @@ Idempotency-Key: <uuid>        # optional; a replay returns the original result
 ```jsonc
 {
   "serviceType": "rides",                              // required
-  "location": { "lat": 32.7157, "lng": -117.1611, "address": "Downtown San Diego" },
-  "requester": { "name": "Alice Nguyen", "phone": "+1-619-555-0999" },  // email or phone
-  "window": { "startsAt": "...", "endsAt": "..." },    // default: now → +7 days
+  "pickupZip": "92101",                               // required demo ZIP
+  "location": { "lat": 32.7157, "lng": -117.1611, "address": "Downtown San Diego" }, // optional display detail
+  "requester": { "name": "Alice Nguyen", "veteran": true, "phone": "+1-619-555-0999" },
+  "window": { "startsAt": "...", "endsAt": "..." },    // startsAt is the exact pickup time
   "durationMinutes": 90,                               // default: per service type
   "maxDistanceKm": 40,
   "preferences": {
@@ -87,47 +88,29 @@ Idempotency-Key: <uuid>        # optional; a replay returns the original result
 }
 ```
 
-`diagnostics.rejections` counts why each veteran dropped out — `out_of_range`,
-`no_overlapping_slot`, `service_not_offered`, and so on. That is what makes "nobody is
+`diagnostics.rejections` counts why each veteran dropped out — `outside_search_radius`,
+`ride_exceeds_slot`, `overlapping_booking`, and so on. That is what makes "nobody is
 available" actionable instead of a dead end.
 
 ### How the ranking works
 
-Hard filters first: verified and active, offers the service, inside both the requester's
-distance cap and the veteran's own travel radius, and holding an **open committed slot** long
-enough for the job inside the requested window. Survivors are scored 0–100 on six weighted
-components (`src/domain/matching.ts`, returned in `scoreBreakdown` so the UI can show its work):
+Hard filters run first: active and verified, offers rides, has an **open committed slot** that
+fully contains pickup through ride end, is inside both distance limits, and has no overlapping
+confirmed booking. Availability can never be traded for a better score. ZIP codes are mapped to
+a small local centroid table and measured with Haversine distance; exact coordinates remain only
+as a compatibility fallback.
+
+Eligible drivers are scored 0–100 on three explainable components:
 
 | Component | Weight | What it rewards |
 | --- | --- | --- |
-| `proximity` | 0.30 | Closer to the requester |
-| `rating` | 0.20 | Community rating (unrated veterans are treated as 4.5) |
-| `promptness` | 0.15 | Can start sooner in the window |
-| `workloadBalance` | 0.15 | Hasn't been booked much in the last 7 days |
-| `reliability` | 0.10 | Completed-job track record |
-| `slotFit` | 0.10 | Job fills the block, so long slots stay free for long jobs |
+| `proximity` | 0.65 | Closer ZIP centroid to pickup |
+| `workloadFairness` | 0.25 | Fewer confirmed/completed rides assigned in the trailing 7 days |
+| `reliability` | 0.10 | Rating, with unrated drivers treated as 4.5 |
 
-`workloadBalance` is deliberate: a community network that always routes to the same three
-people burns them out. Change the weights in one place and every match moves with them.
-
-### How far is too far
-
-Scoring alone isn't enough to keep pickups short — a five-star driver twenty-five miles out can
-outscore an average one four miles away. So the search is **closest-first**
-(`backend/src/domain/distancePolicy.ts`):
-
-- **Tiers.** We run the full ranking within **10 miles**, then **20**, then **30**, and stop at
-  the first radius that finds anybody. Nobody four miles away is passed over for someone
-  twenty-five miles out with a better rating.
-- **Ceiling.** **30 miles** is the furthest a veteran is ever sent to a pickup. Past that we
-  would rather tell the rider nobody is available than ask for an hour's drive before the trip
-  starts. A requester may ask us to look *less* far; a request for more is clamped, not refused.
-- **Reported.** `diagnostics.searchRadiusMiles` says how far out we actually had to look, so a
-  match at 28 miles is visibly a stretch rather than looking like a normal result.
-
-Tune it with `MAX_PICKUP_MILES`, or edit `PICKUP_TIERS_MILES` for the ladder. The veteran
-sign-up page reads both from `GET /api/v1/catalog`, so the promise made at sign-up and the
-behaviour of the matcher can't drift apart.
+Fairness may reorder only drivers within 3.2 km (about two miles) of the closest eligible driver.
+Drivers outside that competition set remain alternatives but cannot win purely because they have
+less work. Ties resolve by score, distance, workload, rating, earliest valid slot, then driver ID.
 
 ## The rest of the API
 
@@ -135,10 +118,10 @@ behaviour of the matcher can't drift apart.
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
 | `GET` | `/api/v1/catalog` | Service types, branches, match weights — so neither client hardcodes enums |
-| `POST` | `/api/v1/providers` | A veteran joins the network (give a `zip`, not coordinates) |
+| `POST` | `/api/v1/providers` | A veteran joins the network |
 | `GET` | `/api/v1/providers?serviceType=rides` | Public roster (no contact details) |
 | `GET` | `/api/v1/providers/:id` | Profile + open slots |
-| `PATCH` | `/api/v1/providers/:id` | Update bio, ZIP, offerings, pause with `active: false` |
+| `PATCH` | `/api/v1/providers/:id` | Update bio, radius, offerings, pause with `active: false` |
 | `POST` | `/api/v1/providers/:id/slots` | **Commit** a block of time |
 | `GET` | `/api/v1/providers/:id/slots?status=open` | Their commitments |
 | `DELETE` | `/api/v1/providers/:id/slots/:slotId` | Withdraw an unbooked commitment |
@@ -155,8 +138,9 @@ the offending fields.
 ```bash
 curl -s localhost:4000/api/v1/service-requests -H 'Content-Type: application/json' -d '{
   "serviceType": "rides",
+  "pickupZip": "92101",
   "location": { "lat": 32.7157, "lng": -117.1611 },
-  "requester": { "name": "Alice", "phone": "+1-619-555-0999" },
+  "requester": { "name": "Alice", "veteran": true, "phone": "+1-619-555-0999" },
   "durationMinutes": 90
 }' | jq '{status, who: .match.provider.name, score: .match.score, when: .booking.startsAt}'
 ```
@@ -193,24 +177,13 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
 4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-5. **ZIP centroids instead of geocoding.** Veterans give a ZIP; we match from a static table
-   of San Diego County centroids in `backend/src/domain/zipCodes.ts` (80 ZIPs, including the
-   bases). Off-map ZIPs are refused with a plain explanation. A real geocoder means
-   reimplementing `lookupZip` and nothing else. The request app needs its own answer for the
-   rider's location — device GPS is the obvious one.
-6. **One distance policy for the whole county.** The 10/20/30-mile ladder is applied
-   everywhere. That's right for the metro and probably wrong for Julian or Ramona, where 10
-   miles reaches almost nobody and a 40-mile drive may be normal. Per-ZIP tiers, or letting a
-   veteran opt into longer runs, is the next refinement.
-7. **Only the pickup leg is measured.** We match on how far the veteran drives to reach the
-   rider. The trip itself is unbounded because the request app doesn't send a destination — a
-   driver matched at 2 miles could still be asked for a 60-mile round trip. Taking a
-   destination and scoring total mileage is the honest fix.
-8. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
+5. **Demo-only ZIP geography.** `backend/src/domain/zipGeo.ts` contains a small San Diego ZIP
+   centroid table. Unknown ZIPs return a clean validation error; no external geocoder is called.
+6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
    it matters more now that the requester and the veteran are in different apps.
-9. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
-10. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
+7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
+8. **Single-process concurrency.** Double-booking is prevented by a slot re-check plus an
    `Idempotency-Key`, which holds for one process but not for a horizontally scaled API. A real
    deployment needs a transactional claim on the slot row.
-11. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
+9. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
    collects it after a completed job yet.
