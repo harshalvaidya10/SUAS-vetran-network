@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/local.js",
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/local.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node --env-file-if-exists=.env dist/index.js",
+    "start": "node --env-file-if-exists=.env dist/local.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
