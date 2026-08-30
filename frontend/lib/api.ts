@@ -46,6 +46,7 @@ export interface Provider {
   offerings: Offering[];
   email?: string;
   phone?: string;
+  vehicle?: { model: string; licensePlate: string } | null;
 }
 
 export interface Slot {

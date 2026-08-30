@@ -18,6 +18,7 @@ interface SeedProvider {
   bio: string;
   email: string;
   phone: string;
+  vehicle: { model: string; licensePlate: string };
   base: Place;
   zipCode: string;
   serviceRadiusKm: number;
@@ -36,6 +37,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Motor T for two deployments. Happy to drive anyone to a VA appointment.',
     email: 'marcus.hale@example.com',
     phone: '+1-619-555-0142',
+    vehicle: { model: '2021 Toyota Sienna', licensePlate: '7VET142' },
     base: { lat: 32.7157, lng: -117.1611, address: 'Downtown, San Diego, CA' },
     zipCode: '92101',
     serviceRadiusKm: 40,
@@ -55,6 +57,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Hospital corpsman. I will drive you to the appointment and sit with you through it.',
     email: 'denise.okafor@example.com',
     phone: '+1-619-555-0177',
+    vehicle: { model: '2020 Honda CR-V', licensePlate: '7NAV177' },
     base: { lat: 32.7677, lng: -117.2231, address: 'Point Loma, San Diego, CA' },
     zipCode: '92106',
     serviceRadiusKm: 25,
@@ -73,6 +76,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Drove convoy for twenty years. Long hauls, early starts, bad weather — none of it bothers me.',
     email: 'ray.whitlock@example.com',
     phone: '+1-619-555-0193',
+    vehicle: { model: '2019 Ford Explorer', licensePlate: '7ARM193' },
     base: { lat: 32.8328, lng: -116.9625, address: 'El Cajon, CA' },
     zipCode: '92020',
     serviceRadiusKm: 60,
@@ -92,6 +96,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Cyber ops, still serving in the reserves. Evenings and weekends are mine to give.',
     email: 'priya.raman@example.com',
     phone: '+1-858-555-0110',
+    vehicle: { model: '2022 Hyundai Ioniq 5', licensePlate: '8AIR110' },
     base: { lat: 32.8801, lng: -117.234, address: 'La Jolla, San Diego, CA' },
     zipCode: '92037',
     serviceRadiusKm: 20,
@@ -111,6 +116,7 @@ const SEED_PROVIDERS: SeedProvider[] = [
     bio: 'Search and rescue. Retired, restless, and behind the wheel most of the week.',
     email: 'tom.bierman@example.com',
     phone: '+1-760-555-0164',
+    vehicle: { model: '2020 Subaru Outback', licensePlate: '7CGD164' },
     base: { lat: 33.1959, lng: -117.3795, address: 'Oceanside, CA' },
     zipCode: '92054',
     serviceRadiusKm: 50,
@@ -137,6 +143,7 @@ export async function seedDemoData(): Promise<{ providers: number; slots: number
       bio: seed.bio,
       email: seed.email,
       phone: seed.phone,
+      vehicle: seed.vehicle,
       base: seed.base,
       zipCode: seed.zipCode,
       serviceRadiusKm: seed.serviceRadiusKm,
