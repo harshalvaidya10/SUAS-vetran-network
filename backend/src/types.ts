@@ -28,6 +28,11 @@ export interface Provider {
   bio: string;
   email: string;
   phone: string;
+  /** Rider-facing vehicle details, revealed only after a booking is confirmed. */
+  vehicle?: {
+    model: string;
+    licensePlate: string;
+  };
   /** Where they start from; used for distance to the requester. */
   base: Place;
   /** Preferred coarse origin for matching without exposing a home address. */

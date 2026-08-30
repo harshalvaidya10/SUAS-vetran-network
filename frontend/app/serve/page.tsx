@@ -199,6 +199,11 @@ export default function ServePage() {
                       {providerId.slice(0, 8)}…
                     </p>
                   )}
+                  {provider?.vehicle ? (
+                    <p className="mono muted" style={{ margin: '4px 0 0' }}>
+                      {provider.vehicle.model} · {provider.vehicle.licensePlate}
+                    </p>
+                  ) : null}
                 </div>
                 <button type="button" className="ghost small" onClick={signOut}>
                   Switch account
@@ -430,6 +435,8 @@ function EnlistForm({
   const [bio, setBio] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [licensePlate, setLicensePlate] = useState('');
   const [zip, setZip] = useState('');
   const [rateType, setRateType] = useState<Offering['rateType']>('volunteer');
   const [hourlyRateUsd, setHourlyRateUsd] = useState(0);
@@ -454,6 +461,7 @@ function EnlistForm({
         bio,
         email,
         phone,
+        vehicle: { model: vehicleModel, licensePlate },
         zipCode: zip,
         offerings,
       });
@@ -497,6 +505,28 @@ function EnlistForm({
             max={60}
             value={yearsOfService}
             onChange={(e) => setYearsOfService(Number(e.target.value))}
+          />
+        </label>
+      </div>
+
+      <div className="row">
+        <label className="field">
+          <span>Car model</span>
+          <input
+            value={vehicleModel}
+            onChange={(e) => setVehicleModel(e.target.value)}
+            required
+            placeholder="2021 Toyota Sienna"
+          />
+        </label>
+        <label className="field">
+          <span>License plate</span>
+          <input
+            value={licensePlate}
+            onChange={(e) => setLicensePlate(e.target.value.toUpperCase())}
+            required
+            maxLength={16}
+            placeholder="8ABC123"
           />
         </label>
       </div>

@@ -147,7 +147,7 @@ less work. Ties resolve by score, distance, workload, rating, earliest valid slo
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
 | `GET` | `/api/v1/catalog` | Service types, branches, match weights — so neither client hardcodes enums |
-| `POST` | `/api/v1/providers` | A veteran joins the network (give a `zipCode`; `base` is derived from its centroid) |
+| `POST` | `/api/v1/providers` | A veteran joins the network (includes vehicle model/plate; give a `zipCode`) |
 | `GET` | `/api/v1/providers?serviceType=rides` | Public roster (no contact details) |
 | `GET` | `/api/v1/providers/:id` | Profile + open slots |
 | `PATCH` | `/api/v1/providers/:id` | Update bio, radius, offerings, pause with `active: false` |
@@ -182,7 +182,8 @@ to find someone" — and it's why booking consumes the whole block rather than s
 
 **Contact details are withheld until a booking exists.** A search returns names, branch,
 rating and bio; phone and email only travel with a confirmed booking, so the roster can't be
-scraped by anyone who can POST a search.
+scraped by anyone who can POST a search. Vehicle model and license plate follow the same rule:
+they are returned to the rider with the confirmed booking, never in the public roster or shortlist.
 
 **Data access lives in `backend/src/data/store.ts`.** With `DATABASE_URL` configured it uses
 PostgreSQL; without it, local development uses SQLite. Tests use an isolated in-memory store.

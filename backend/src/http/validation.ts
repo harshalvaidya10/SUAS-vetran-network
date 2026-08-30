@@ -32,6 +32,10 @@ export const providerCreateSchema = z.object({
   bio: z.string().trim().max(500).default(''),
   email: z.string().email(),
   phone: z.string().trim().min(7).max(30),
+  vehicle: z.object({
+    model: z.string().trim().min(2).max(80),
+    licensePlate: z.string().trim().min(2).max(16).transform((value) => value.toUpperCase()),
+  }),
   /**
    * The only location we ask a veteran for. `base` is derived from its
    * centroid — see the providers route — so the sign-up form never has to make
