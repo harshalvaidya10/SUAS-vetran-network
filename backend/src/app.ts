@@ -11,6 +11,16 @@ import { serviceRequestsRouter } from './routes/serviceRequests.js';
 import { authRouter } from './routes/auth.js';
 import { rideRequestsRouter } from './routes/rideRequests.js';
 
+// Logged at module load so it appears in serverless cold-start logs too, not
+// just the local server. A deployment that silently double-books people should
+// at least say so.
+if (config.demoReusableSlots) {
+  console.warn(
+    'DEMO MODE: availability blocks are not consumed by a booking, so the same ' +
+      'driver can be matched over and over. Set DEMO_REUSABLE_SLOTS=0 for real behaviour.',
+  );
+}
+
 export function createApp(): Express {
   const app = express();
 
