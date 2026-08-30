@@ -92,7 +92,7 @@ Idempotency-Key: <uuid>        # strongly recommended for retries
 | `rider.veteran` | yes | Must be `true` for the MVP |
 | `rider.phone` / `rider.email` | one required | Contact information for the assigned driver |
 | `currentAddress.address` | yes | 3–200 characters |
-| `currentAddress.zipCode` | yes | Five-digit supported San Diego pickup ZIP; used for matching |
+| `currentAddress.zipCode` | yes | Supported San Diego or Bay Area pickup ZIP; used for matching |
 | `destinationAddress.address` | yes | 3–200 characters; persisted on the booking |
 | `destinationAddress.zipCode` | yes | Five-digit ZIP; persisted on the booking |
 | `durationMinutes` | no | Integer 15–600; defaults to 60 |
@@ -286,8 +286,8 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
 3. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-4. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for 80
-   San Diego County ZIPs, including the bases. Unknown ZIPs return a clean validation error; no
+4. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for
+   San Diego County and core Bay Area ZIPs, including Hacker Dojo (`94043`). Unknown ZIPs return a clean validation error; no
    external geocoder is called. Precision is ZIP-level by design — a centroid is about as exact
    as a veteran's home address should be to the matcher. Serving a second county means adding
    rows, and a real geocoder means reimplementing `getZipCoordinates` and nothing else.

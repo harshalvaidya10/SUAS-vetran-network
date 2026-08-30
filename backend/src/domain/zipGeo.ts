@@ -2,10 +2,37 @@ import type { GeoPoint } from '../types.js';
 import { distanceKm, isValidGeoPoint } from './geo.js';
 
 /**
- * Small, deliberately local centroid table for the San Diego hackathon demo.
+ * Deliberately local centroid table for the San Diego and Bay Area demos.
  * ZIPs are geographic identifiers, never numbers to subtract from one another.
  */
 const ZIP_CENTROIDS: Readonly<Record<string, GeoPoint>> = {
+  // San Francisco Peninsula / South Bay. Hacker Dojo is in 94043.
+  '94022': { lat: 37.37, lng: -122.145 }, // Los Altos
+  '94024': { lat: 37.35, lng: -122.10 }, // Los Altos
+  '94040': { lat: 37.38, lng: -122.087 }, // Mountain View
+  '94041': { lat: 37.389, lng: -122.079 }, // Downtown Mountain View
+  '94043': { lat: 37.414, lng: -122.07 }, // Hacker Dojo / North Mountain View
+  '94085': { lat: 37.389, lng: -122.017 }, // Sunnyvale
+  '94086': { lat: 37.371, lng: -122.023 }, // Sunnyvale
+  '94087': { lat: 37.351, lng: -122.036 }, // Sunnyvale
+  '94089': { lat: 37.412, lng: -122.015 }, // North Sunnyvale
+  '94103': { lat: 37.773, lng: -122.411 }, // San Francisco SOMA
+  '94105': { lat: 37.789, lng: -122.394 }, // San Francisco Embarcadero
+  '94107': { lat: 37.766, lng: -122.395 }, // San Francisco Mission Bay
+  '94301': { lat: 37.444, lng: -122.15 }, // Palo Alto
+  '94303': { lat: 37.454, lng: -122.117 }, // East Palo Alto / Palo Alto
+  '94304': { lat: 37.405, lng: -122.167 }, // Stanford
+  '94306': { lat: 37.418, lng: -122.13 }, // Palo Alto
+  '95014': { lat: 37.306, lng: -122.081 }, // Cupertino
+  '95050': { lat: 37.354, lng: -121.953 }, // Santa Clara
+  '95051': { lat: 37.35, lng: -121.984 }, // Santa Clara
+  '95054': { lat: 37.395, lng: -121.964 }, // North Santa Clara
+  '95110': { lat: 37.347, lng: -121.91 }, // San Jose
+  '95112': { lat: 37.344, lng: -121.883 }, // Downtown San Jose
+  '95113': { lat: 37.334, lng: -121.89 }, // Downtown San Jose
+  '95126': { lat: 37.325, lng: -121.916 }, // San Jose
+  '95128': { lat: 37.316, lng: -121.936 }, // San Jose
+
   '92020': { lat: 32.7955, lng: -116.9625 }, // El Cajon
   '92037': { lat: 32.8444, lng: -117.2521 }, // La Jolla
   '92054': { lat: 33.1959, lng: -117.3795 }, // Oceanside

@@ -128,7 +128,7 @@ export default async function HomePage() {
               <div className="match-head" style={{ marginBottom: 18 }}>
                 <div>
                   <p className="eyebrow">Who is already on</p>
-                  <h2>{providers.length} veterans taking work in San Diego County</h2>
+                  <h2>{providers.length} veterans taking work in our demo service areas</h2>
                 </div>
                 <Link href="/serve?new=1" className="mono">
                   Add your name →

@@ -24,7 +24,7 @@ function baseFromZip(zipCode: string) {
   const point = getZipCoordinates(zipCode);
   if (!point) {
     throw ApiError.badRequest(
-      `We're only running in San Diego County right now, and ${zipCode} isn't in our service area yet.`,
+      `ZIP code ${zipCode} isn't in our San Diego or Bay Area demo service area yet.`,
     );
   }
   return point;
