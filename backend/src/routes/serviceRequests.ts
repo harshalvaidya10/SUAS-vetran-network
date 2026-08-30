@@ -44,7 +44,7 @@ export async function handleServiceRequest(req: Request, res: Response) {
   const pickupCoordinates = getZipCoordinates(pickupZip);
   if (!pickupCoordinates) {
     throw ApiError.badRequest(
-      `ZIP code ${pickupZip} is not in the demo geography yet. Try a supported San Diego ZIP.`,
+      `ZIP code ${pickupZip} is not in the demo geography yet. Try a supported San Diego or Bay Area ZIP.`,
       [{ field: 'pickupZip', message: 'Unknown ZIP code' }],
     );
   }

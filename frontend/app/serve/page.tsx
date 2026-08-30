@@ -579,8 +579,8 @@ function EnlistForm({
             ? `We match riders with whoever is nearest them. Spreading the work only ever picks
                between drivers within about ${formatMiles(distance.fairnessMaxExtraKm)} of each other,
                so it never sends you further — and you will only be offered rides within about
-               ${formatMiles(distance.serviceRadiusKm)} of your ZIP. San Diego County for now.`
-            : 'We match you to rides near here — you don\u2019t need to work out a radius. San Diego County for now.'}
+               ${formatMiles(distance.serviceRadiusKm)} of your ZIP. San Diego County and the Bay Area for now.`
+            : 'We match you to rides near here — you don\u2019t need to work out a radius. San Diego County and the Bay Area for now.'}
         </p>
       </div>
 
