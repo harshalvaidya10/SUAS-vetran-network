@@ -9,6 +9,7 @@ import { catalogRouter } from './routes/catalog.js';
 import { providersRouter } from './routes/providers.js';
 import { serviceRequestsRouter } from './routes/serviceRequests.js';
 import { authRouter } from './routes/auth.js';
+import { rideRequestsRouter } from './routes/rideRequests.js';
 
 export function createApp(): Express {
   const app = express();
@@ -36,6 +37,7 @@ export function createApp(): Express {
   app.use('/api/v1/catalog', catalogRouter);
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/providers', providersRouter);
+  app.use('/api/v1/ride-requests', rideRequestsRouter);
   app.use('/api/v1/service-requests', serviceRequestsRouter);
   app.use('/api/v1/bookings', bookingsRouter);
 

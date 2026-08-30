@@ -70,7 +70,7 @@ export const slotCreateSchema = z
     path: ['endsAt'],
   });
 
-const requesterSchema = z
+export const requesterSchema = z
   .object({
     name: z.string().trim().min(2).max(80),
     veteran: z.literal(true, { errorMap: () => ({ message: 'Rides are currently for veterans' }) }),
@@ -89,6 +89,11 @@ const requesterSchema = z
 export const serviceRequestSchema = z.object({
   serviceType: z.enum(SERVICE_TYPE_IDS),
   pickupZip: zipCodeSchema,
+  pickupAddress: z.string().trim().min(3).max(200).optional(),
+  destination: z.object({
+    address: z.string().trim().min(3).max(200),
+    zipCode: zipCodeSchema,
+  }).optional(),
   /** Optional compatibility/display detail; matching uses pickupZip. */
   location: placeSchema.optional(),
   requester: requesterSchema,
@@ -111,6 +116,21 @@ export const serviceRequestSchema = z.object({
   autoBook: z.boolean().default(true),
   notes: z.string().trim().max(500).optional(),
   limit: z.number().int().min(1).max(10).default(5),
+});
+
+const rideAddressSchema = z.object({
+  address: z.string().trim().min(3).max(200),
+  zipCode: zipCodeSchema,
+});
+
+/** Public rider-client contract. Pickup time is always the server receipt time. */
+export const realtimeRideRequestSchema = z.object({
+  rider: requesterSchema,
+  currentAddress: rideAddressSchema,
+  destinationAddress: rideAddressSchema,
+  durationMinutes: z.number().int().min(15).max(600).optional(),
+  maxDistanceKm: z.number().min(1).max(200).optional(),
+  notes: z.string().trim().max(500).optional(),
 });
 
 export const bookingUpdateSchema = z.object({
