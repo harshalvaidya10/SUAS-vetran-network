@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { createApp } from '../app.js';
+import { config } from '../config.js';
 import { store } from '../data/store.js';
 
 async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
@@ -57,6 +58,11 @@ test('route validates pickup ZIP cleanly', async () => {
 });
 
 test('idempotency and synchronous slot claiming prevent double booking', async () => {
+  // The claim is what stops two riders being promised one veteran, so this
+  // asserts the real behaviour even when the demo default is relaxed.
+  const demo = config.demoReusableSlots;
+  config.demoReusableSlots = false;
+  try {
   await withServer(async (baseUrl) => {
     await store.reset();
     const startsAt = new Date(Date.now() + 2 * 3_600_000);
@@ -114,6 +120,75 @@ test('idempotency and synchronous slot claiming prevent double booking', async (
     assert.equal(competingPayload.booking, null);
     assert.equal((await store.listBookings()).length, 1);
   });
+  } finally {
+    config.demoReusableSlots = demo;
+  }
+});
+
+test('demo mode keeps the block open so the same driver can be matched again', async () => {
+  const demo = config.demoReusableSlots;
+  config.demoReusableSlots = true;
+  try {
+    await withServer(async (baseUrl) => {
+      await store.reset();
+      const startsAt = new Date(Date.now() + 2 * 3_600_000);
+      startsAt.setMilliseconds(0);
+      const rideEndsAt = new Date(startsAt.getTime() + 3_600_000);
+      const provider = await store.createProvider({
+        name: 'Driver One',
+        branch: 'army',
+        yearsOfService: 8,
+        bio: '',
+        email: 'driver@example.com',
+        phone: '+1-619-555-0100',
+        base: { lat: 32.719, lng: -117.1628 },
+        zipCode: '92101',
+        serviceRadiusKm: 40,
+        offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
+        rating: 4.8,
+        completedJobs: 5,
+        verified: true,
+        active: true,
+      });
+      const slot = await store.createSlot({
+        providerId: provider.id,
+        startsAt: new Date(startsAt.getTime() - 3_600_000).toISOString(),
+        endsAt: new Date(startsAt.getTime() + 2 * 3_600_000).toISOString(),
+        serviceTypes: ['rides'],
+        status: 'open',
+      });
+
+      const body = requestBody(startsAt.toISOString(), rideEndsAt.toISOString());
+      const send = (key: string) =>
+        fetch(`${baseUrl}/api/v1/service-requests`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+          body: JSON.stringify(body),
+        });
+
+      const first = (await (await send('demo-one')).json()) as {
+        status: string;
+        booking: { id: string; providerId: string };
+      };
+      assert.equal(first.status, 'matched');
+
+      // A brand-new key, so no idempotent replay: this has to be a fresh match.
+      const second = (await (await send('demo-two')).json()) as {
+        status: string;
+        replayed?: boolean;
+        booking: { id: string; providerId: string };
+      };
+      assert.equal(second.status, 'matched');
+      assert.notEqual(second.replayed, true);
+      assert.notEqual(second.booking.id, first.booking.id);
+      assert.equal(second.booking.providerId, first.booking.providerId, 'same driver again');
+
+      assert.equal((await store.listBookings()).length, 2);
+      assert.equal((await store.getSlot(slot.id))?.status, 'open', 'block was never consumed');
+    });
+  } finally {
+    config.demoReusableSlots = demo;
+  }
 });
 
 test('realtime ride request matches current ZIP and returns vehicle identity', async () => {

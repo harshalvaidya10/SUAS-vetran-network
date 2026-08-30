@@ -18,4 +18,16 @@ export const config = {
   autoVerifyProviders: (process.env.AUTO_VERIFY_PROVIDERS ?? '1') !== '0',
   /** Development-only OTP. Replace the mock auth routes with Twilio Verify before production. */
   mockOtpCode: process.env.MOCK_OTP_CODE ?? '123456',
+  /**
+   * Demo mode: a booking does not consume the veteran's availability block, and
+   * a veteran already booked at that hour can be matched again. It exists so a
+   * live demo can fire the same request repeatedly and keep getting a driver,
+   * instead of exhausting the roster after one booking each.
+   *
+   * Unlike `seedDemoData`, this is deliberately NOT gated on `VERCEL`: the
+   * hosted deployment is what gets demoed, so it defaults on there too. It
+   * allows double-booking a real person, so set `DEMO_REUSABLE_SLOTS=0` the
+   * moment this stops being a demo. Startup logs which mode is active.
+   */
+  demoReusableSlots: (process.env.DEMO_REUSABLE_SLOTS ?? '1') !== '0',
 };

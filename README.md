@@ -272,6 +272,23 @@ PostgreSQL; without it, local development uses SQLite. Tests use an isolated in-
 **The matcher is a pure function.** `findMatches(criteria, context)` does no I/O, which is why
 the ranking rules are covered by fast unit tests.
 
+## Demo mode
+
+`DEMO_REUSABLE_SLOTS` defaults to **on, in every environment including the hosted
+deployment**, because the hosted deployment is what gets demoed. With it on:
+
+- a booking does **not** consume the veteran's availability block, and
+- a driver already booked at that hour can still be matched.
+
+So the same request can be fired over and over and keep returning a real driver, instead of
+exhausting the roster after one booking each. `diagnostics.rejections` stops filling with
+`no_open_slot` after the first ride.
+
+The cost is real: the API will double-book an actual person, and two riders can be promised
+the same veteran at the same time. Set `DEMO_REUSABLE_SLOTS=0` the moment this stops being a
+demo — that restores the atomic `claimOpenSlot` and the overlapping-booking check, both of
+which are covered by tests either way. The API warns on start-up which mode it is in.
+
 ## Known gaps before this is real
 
 These are deliberate bootstrap cuts, roughly in the order they should be closed:
@@ -283,18 +300,21 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
    one middleware.
 2. **No veteran auth either.** Anyone who knows a provider id can edit that profile or cancel
    its bookings. The veteran identity is kept in `localStorage`. Needs real accounts + sessions.
-3. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
+3. **Demo mode double-books.** `DEMO_REUSABLE_SLOTS=1` is the default in every environment,
+   including the hosted one. Bookings do not consume availability and a driver can be promised
+   to two riders at once. Turn it off before real riders use this — see **Demo mode** above.
+4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.
-4. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for
+5. **ZIP centroids instead of geocoding.** `backend/src/domain/zipGeo.ts` holds centroids for
    San Diego County and core Bay Area ZIPs, including Hacker Dojo (`94043`). Unknown ZIPs return a clean validation error; no
    external geocoder is called. Precision is ZIP-level by design — a centroid is about as exact
    as a veteran's home address should be to the matcher. Serving a second county means adding
    rows, and a real geocoder means reimplementing `getZipCoordinates` and nothing else.
-5. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
+6. **No notifications.** A booked veteran finds out by opening `/serve`. Needs SMS/email, and
    it matters more now that the requester and the veteran are in different apps.
-6. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
-7. **Booking is not fully transactional.** PostgreSQL atomically claims a slot, but the slot
+7. **No payments.** Paid offerings produce an estimate only; money is settled off-platform.
+8. **Booking is not fully transactional.** PostgreSQL atomically claims a slot, but the slot
    claim, request creation and booking creation should become one transaction before scaling.
-8. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
+9. **No ratings flow.** `rating` exists on a provider and feeds the match score, but nothing
    collects it after a completed job yet.
