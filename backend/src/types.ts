@@ -88,6 +88,7 @@ export interface Booking {
   serviceType: ServiceTypeId;
   requester: Requester;
   location: Place;
+  destination?: { address: string; zipCode: string };
   startsAt: string;
   endsAt: string;
   status: BookingStatus;
@@ -104,6 +105,7 @@ export interface ServiceRequestRecord {
   requester: Requester;
   location: Place;
   pickupZip: string;
+  destination?: { address: string; zipCode: string };
   windowStartsAt: string;
   windowEndsAt: string;
   durationMinutes: number;

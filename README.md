@@ -74,6 +74,83 @@ npm run build                   # tsc for the API, next build for the web app
 
 ## The one endpoint the request app calls
 
+### Realtime ride request
+
+The rider frontend should use `POST /api/v1/ride-requests`. It does not send a pickup time:
+the API uses the instant it receives the request and only considers drivers whose open committed
+block contains that instant and the full estimated ride duration.
+
+```http
+POST /api/v1/ride-requests
+Content-Type: application/json
+Idempotency-Key: <uuid>        # strongly recommended for retries
+```
+
+| Field | Required | Contract |
+| --- | --- | --- |
+| `rider.name` | yes | 2–80 characters |
+| `rider.veteran` | yes | Must be `true` for the MVP |
+| `rider.phone` / `rider.email` | one required | Contact information for the assigned driver |
+| `currentAddress.address` | yes | 3–200 characters |
+| `currentAddress.zipCode` | yes | Five-digit supported San Diego pickup ZIP; used for matching |
+| `destinationAddress.address` | yes | 3–200 characters; persisted on the booking |
+| `destinationAddress.zipCode` | yes | Five-digit ZIP; persisted on the booking |
+| `durationMinutes` | no | Integer 15–600; defaults to 60 |
+| `maxDistanceKm` | no | Number 1–200; defaults to 40 |
+| `notes` | no | Up to 500 characters |
+
+```json
+{
+  "rider": { "name": "Alice Nguyen", "veteran": true, "phone": "+1-619-555-0999" },
+  "currentAddress": { "address": "100 Broadway, San Diego", "zipCode": "92101" },
+  "destinationAddress": { "address": "3350 La Jolla Village Dr", "zipCode": "92161" },
+  "durationMinutes": 60,
+  "maxDistanceKm": 40,
+  "notes": "VA appointment"
+}
+```
+
+On a confirmed match the API returns `201` and includes the rider-facing driver identity.
+The full response also contains `requestId`, `booking`, the scored `match`, alternatives, and
+matching diagnostics; the stable client-facing assignment is the top-level `veteran` object.
+
+```json
+{
+  "status": "matched",
+  "veteran": {
+    "name": "Marcus Hale",
+    "carModel": "2021 Toyota Sienna",
+    "licensePlate": "7VET142",
+    "zipCode": "92101"
+  },
+  "booking": {
+    "status": "confirmed",
+    "startsAt": "2026-08-29T23:45:00.000Z",
+    "endsAt": "2026-08-30T00:45:00.000Z",
+    "destination": {
+      "address": "3350 La Jolla Village Dr",
+      "zipCode": "92161"
+    }
+  }
+}
+```
+
+If nobody is committed right now, it returns `200`, `status: "no_match"`, and `veteran: null`.
+Send an `Idempotency-Key` header to make client retries return the original booking rather than
+claiming another driver.
+
+| HTTP status | Meaning |
+| --- | --- |
+| `201` | Driver matched and booking confirmed |
+| `200` | No current match, or an idempotent replay of an earlier result |
+| `400` | Invalid body, unsupported pickup ZIP, or invalid duration/distance |
+| `409` | Availability changed during the atomic booking claim; retry with a new request key |
+| `500` | Unexpected server/database failure |
+
+Errors use the shared envelope `{ "error": { "code", "message", "details"? } }`.
+
+### Scheduled/general service request
+
 The entire demand side is a single call. The request app holds no roster, no availability and
 no ranking logic — it posts what someone needs and gets back a confirmed veteran, so a
 one-button client stays a one-button client.

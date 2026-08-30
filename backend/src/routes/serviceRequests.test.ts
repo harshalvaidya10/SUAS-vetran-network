@@ -115,3 +115,57 @@ test('idempotency and synchronous slot claiming prevent double booking', async (
     assert.equal((await store.listBookings()).length, 1);
   });
 });
+
+test('realtime ride request matches current ZIP and returns vehicle identity', async () => {
+  await withServer(async (baseUrl) => {
+    await store.reset();
+    const now = Date.now();
+    const provider = await store.createProvider({
+      name: 'Realtime Driver',
+      branch: 'navy',
+      yearsOfService: 6,
+      bio: '',
+      email: 'realtime@example.com',
+      phone: '+1-619-555-0123',
+      vehicle: { model: '2022 Toyota RAV4', licensePlate: '8VET123' },
+      base: { lat: 32.7157, lng: -117.1611 },
+      zipCode: '92101',
+      serviceRadiusKm: 40,
+      offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
+      rating: 4.9,
+      completedJobs: 2,
+      verified: true,
+      active: true,
+    });
+    await store.createSlot({
+      providerId: provider.id,
+      startsAt: new Date(now - 30 * 60_000).toISOString(),
+      endsAt: new Date(now + 2 * 60 * 60_000).toISOString(),
+      serviceTypes: ['rides'],
+      status: 'open',
+    });
+
+    const response = await fetch(`${baseUrl}/api/v1/ride-requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rider: { name: 'Realtime Rider', veteran: true, phone: '+1-619-555-0999' },
+        currentAddress: { address: '100 Broadway', zipCode: '92101' },
+        destinationAddress: { address: '3350 La Jolla Village Drive', zipCode: '92161' },
+        durationMinutes: 60,
+      }),
+    });
+    assert.equal(response.status, 201);
+    const payload = (await response.json()) as {
+      veteran: { name: string; carModel: string; licensePlate: string; zipCode: string };
+      booking: { destination: { zipCode: string } };
+    };
+    assert.deepEqual(payload.veteran, {
+      name: 'Realtime Driver',
+      carModel: '2022 Toyota RAV4',
+      licensePlate: '8VET123',
+      zipCode: '92101',
+    });
+    assert.equal(payload.booking.destination.zipCode, '92161');
+  });
+});

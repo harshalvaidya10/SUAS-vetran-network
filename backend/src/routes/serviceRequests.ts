@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { store } from '../data/store.js';
 import { countRecentBookings, findMatches, type MatchCriteria } from '../domain/matching.js';
 import { getServiceType } from '../domain/serviceCatalog.js';
@@ -19,7 +19,7 @@ export const serviceRequestsRouter: Router = Router();
  * and (by default) books the best one — so the client never has to orchestrate
  * a search-then-book handshake of its own.
  */
-serviceRequestsRouter.post('/', async (req, res) => {
+export async function handleServiceRequest(req: Request, res: Response) {
   const idempotencyKey = req.header('Idempotency-Key');
   if (idempotencyKey) {
     const previous = await store.findIdempotentRequest(idempotencyKey);
@@ -30,6 +30,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
         status: previous.status,
         replayed: true,
         booking: booking ? serializeBooking(booking, await store.getProvider(booking.providerId)) : null,
+        veteran: booking ? rideVeteran(await store.getProvider(booking.providerId)) : null,
         match: null,
         alternatives: [],
       });
@@ -47,7 +48,11 @@ serviceRequestsRouter.post('/', async (req, res) => {
       [{ field: 'pickupZip', message: 'Unknown ZIP code' }],
     );
   }
-  const location = { ...(input.location ?? pickupCoordinates), zipCode: pickupZip };
+  const location = {
+    ...(input.location ?? pickupCoordinates),
+    zipCode: pickupZip,
+    ...(input.pickupAddress ? { address: input.pickupAddress } : {}),
+  };
 
   const windowStartsAt = input.window?.startsAt ? new Date(input.window.startsAt) : now;
   const windowEndsAt = input.window?.endsAt
@@ -114,6 +119,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
       requester: input.requester,
       location,
       pickupZip,
+      ...(input.destination ? { destination: input.destination } : {}),
       windowStartsAt: criteria.windowStartsAt,
       windowEndsAt: criteria.windowEndsAt,
       durationMinutes,
@@ -127,6 +133,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
       status: 'no_match',
       message: noMatchAdvice(result.rejections),
       booking: null,
+      veteran: null,
       match: null,
       alternatives: [],
       diagnostics,
@@ -142,6 +149,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
       requester: input.requester,
       location,
       pickupZip,
+      ...(input.destination ? { destination: input.destination } : {}),
       windowStartsAt: criteria.windowStartsAt,
       windowEndsAt: criteria.windowEndsAt,
       durationMinutes,
@@ -154,6 +162,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
       requestId: record.id,
       status: 'matched',
       booking: null,
+      veteran: null,
       match: serializeCandidate(best!),
       alternatives: rest.map(serializeCandidate),
       diagnostics,
@@ -167,7 +176,9 @@ serviceRequestsRouter.post('/', async (req, res) => {
   let chosenIndex = -1;
   let slot: Awaited<ReturnType<typeof store.getSlot>>;
   for (const [index, candidate] of result.candidates.entries()) {
-    const currentNow = new Date();
+    // Keep the original receipt instant for realtime requests. Milliseconds
+    // spent reading/revalidating state must not turn "right now" into "past".
+    const currentNow = now;
     const currentBookings = await store.listBookings();
     const revalidated = findMatches(
       { ...criteria, providerId: candidate.provider.id, limit: 1 },
@@ -196,6 +207,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
     requester: input.requester,
     location,
     pickupZip,
+    ...(input.destination ? { destination: input.destination } : {}),
     windowStartsAt: criteria.windowStartsAt,
     windowEndsAt: criteria.windowEndsAt,
     durationMinutes,
@@ -210,6 +222,7 @@ serviceRequestsRouter.post('/', async (req, res) => {
     serviceType: input.serviceType,
     requester: input.requester,
     location,
+    ...(input.destination ? { destination: input.destination } : {}),
     startsAt: chosen.startsAt,
     endsAt: chosen.endsAt,
     status: 'confirmed',
@@ -225,11 +238,14 @@ serviceRequestsRouter.post('/', async (req, res) => {
     requestId: record.id,
     status: 'matched',
     booking: serializeBooking(booking, chosen.provider),
+    veteran: rideVeteran(chosen.provider),
     match: serializeCandidate(chosen),
     alternatives: result.candidates.slice(chosenIndex + 1).map(serializeCandidate),
     diagnostics,
   });
-});
+}
+
+serviceRequestsRouter.post('/', handleServiceRequest);
 
 /** GET /api/v1/service-requests/:id — what happened to an earlier request. */
 serviceRequestsRouter.get('/:id', async (req, res) => {
@@ -288,4 +304,14 @@ function noMatchAdvice(rejections: Record<string, number>): string {
     default:
       return 'No veteran is available for that request right now.';
   }
+}
+
+function rideVeteran(provider: Awaited<ReturnType<typeof store.getProvider>>) {
+  if (!provider) return null;
+  return {
+    name: provider.name,
+    carModel: provider.vehicle?.model ?? null,
+    licensePlate: provider.vehicle?.licensePlate ?? null,
+    zipCode: provider.zipCode ?? provider.base.zipCode ?? null,
+  };
 }
