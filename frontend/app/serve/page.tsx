@@ -102,8 +102,10 @@ export default function ServePage() {
     setProvider(null);
     setSlots([]);
     setBookings([]);
+    setError(null);
     setOnboarding(false);
     setSignupComplete(false);
+    setShowLogin(true);
   }
 
   function finishSignup() {
@@ -212,7 +214,7 @@ export default function ServePage() {
                   ) : null}
                 </div>
                 <button type="button" className="ghost small" onClick={signOut}>
-                  Switch account
+                  Log out
                 </button>
               </div>
             </div>
