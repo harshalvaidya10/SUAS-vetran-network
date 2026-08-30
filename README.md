@@ -33,6 +33,10 @@ Local development uses SQLite automatically. Veteran signups persist in
 `backend/.data/vetnet.sqlite`, so there is no database service to start and `npm run dev` is
 the only startup command. Demo veterans are inserted only when the database is empty.
 
+For a repeatable hackathon demo, set `RESET_DATABASE_ON_START=1` in `backend/.env`. Every API
+restart then clears local SQLite and reloads the demo roster. This flag is deliberately ignored
+on Vercel so it cannot erase Neon data. Set it back to `0` when testing persistence.
+
 For Vercel, provision Neon and set `DATABASE_URL` to its PostgreSQL connection string. The API
 then switches to PostgreSQL and creates the same schema automatically on startup. The Docker
 Compose setup remains available for developers who want a local PostgreSQL instance.

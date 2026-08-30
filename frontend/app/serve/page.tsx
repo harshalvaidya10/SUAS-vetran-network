@@ -106,6 +106,12 @@ export default function ServePage() {
     setSignupComplete(false);
   }
 
+  function finishSignup() {
+    // Enrollment stays in SQLite/Postgres. Only forget which veteran this
+    // browser was viewing so /serve returns to the phone-login screen.
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+
   async function withdrawSlot(slotId: string) {
     if (!providerId) return;
     setPending(true);
@@ -222,7 +228,7 @@ export default function ServePage() {
                   </p>
                 </div>
                 <div className="row" style={{ alignItems: 'center', gap: 12 }}>
-                  <Link href="/" className="cta">
+                  <Link href="/" className="cta" onClick={finishSignup}>
                     Done
                   </Link>
                   <button
