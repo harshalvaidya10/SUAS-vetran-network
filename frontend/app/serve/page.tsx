@@ -213,9 +213,11 @@ export default function ServePage() {
                     </p>
                   ) : null}
                 </div>
-                <button type="button" className="ghost small" onClick={signOut}>
-                  Log out
-                </button>
+                {!onboarding ? (
+                  <button type="button" className="ghost small" onClick={signOut}>
+                    Log out
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -225,13 +227,14 @@ export default function ServePage() {
                   <p className="eyebrow">You&apos;re on the board</p>
                   <h2>Signup complete</h2>
                   <p className="muted" style={{ marginBottom: 0 }}>
-                    Your profile and time block are saved. We&apos;ll only match you with a rider
-                    during the hours you committed.
+                    Your account and time block are saved. We&apos;ll only match you with a rider
+                    during the hours you committed. Log back in with your phone whenever you want
+                    to review or withdraw a commitment.
                   </p>
                 </div>
                 <div className="row" style={{ alignItems: 'center', gap: 12 }}>
                   <Link href="/" className="cta" onClick={finishSignup}>
-                    Done
+                    Finish and log out
                   </Link>
                   <button
                     type="button"
