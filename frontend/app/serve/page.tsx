@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   del,
@@ -18,9 +18,21 @@ import {
   type Provider,
   type Slot,
 } from '@/lib/api';
-import { BRANCH_LABELS, formatMiles, formatRange, fromLocalInput, toLocalInput } from '@/lib/format';
+import {
+  BRANCH_LABELS,
+  formatMiles,
+  formatRange,
+  fromLocalInput,
+  hasEnded,
+  toLocalInput,
+} from '@/lib/format';
 
-const STORAGE_KEY = 'vetnet.providerId';
+/**
+ * Keys this page used to persist a session in. Only read now, to clear anything
+ * an earlier build left behind -- a veteran's phone and email have no business
+ * outliving their session on a shared machine.
+ */
+const LEGACY_KEYS = ['vetnet.providerId', 'vetnet.providerProfile'];
 
 /** Tomorrow at `hour`, as a datetime-local value. */
 function tomorrowAt(hour: number): string {
@@ -44,16 +56,19 @@ export default function ServePage() {
 
   useEffect(() => {
     getCatalog().then(setCatalog).catch(setError);
-    const startNewSignup = new URLSearchParams(window.location.search).get('new') === '1';
-    if (startNewSignup) {
-      // This forgets only which veteran this browser is viewing. The previous
-      // veteran remains persisted in SQLite/Postgres and visible in the roster.
-      window.localStorage.removeItem(STORAGE_KEY);
+
+    // A session lives in memory for exactly as long as the page does. Reloading
+    // or reopening /serve asks for the phone number again, which is what you
+    // want on the shared laptop this is likely to be demoed from.
+    try {
+      for (const key of LEGACY_KEYS) window.localStorage.removeItem(key);
+    } catch {
+      // Storage being unavailable is fine; there is nothing to clean up.
+    }
+
+    if (new URLSearchParams(window.location.search).get('new') === '1') {
       window.history.replaceState(null, '', '/serve');
-      setProviderId(null);
       setShowLogin(false);
-    } else {
-      setProviderId(window.localStorage.getItem(STORAGE_KEY));
     }
   }, []);
 
@@ -66,7 +81,11 @@ export default function ServePage() {
         getProviderSlots(id),
         getProviderBookings(id),
       ]);
-      setProvider(profile.provider);
+      // The public projection omits email/phone/vehicle, so keep whatever the
+      // login response already put in state rather than blanking those fields.
+      setProvider((current) =>
+        current && current.id === id ? { ...current, ...profile.provider } : profile.provider,
+      );
       setSlots(slotList.slots);
       setBookings(bookingList.bookings);
     } catch (caught) {
@@ -83,21 +102,18 @@ export default function ServePage() {
   }, [providerId, refresh]);
 
   function onEnlisted(created: Provider) {
-    window.localStorage.setItem(STORAGE_KEY, created.id);
     setProvider(created);
     setProviderId(created.id);
     setOnboarding(true);
   }
 
   function onLoggedIn(loggedIn: Provider) {
-    window.localStorage.setItem(STORAGE_KEY, loggedIn.id);
     setProvider(loggedIn);
     setProviderId(loggedIn.id);
     setOnboarding(false);
   }
 
   function signOut() {
-    window.localStorage.removeItem(STORAGE_KEY);
     setProviderId(null);
     setProvider(null);
     setSlots([]);
@@ -109,9 +125,12 @@ export default function ServePage() {
   }
 
   function finishSignup() {
-    // Enrollment stays in SQLite/Postgres. Only forget which veteran this
-    // browser was viewing so /serve returns to the phone-login screen.
-    window.localStorage.removeItem(STORAGE_KEY);
+    // The enrolment stays in the database; only this browser's session ends.
+    signOut();
+  }
+
+  function onProfileSaved(updated: Provider) {
+    setProvider(updated);
   }
 
   async function withdrawSlot(slotId: string) {
@@ -221,6 +240,15 @@ export default function ServePage() {
               </div>
             </div>
 
+            {!onboarding && provider ? (
+              <ProfileCard
+                provider={provider}
+                catalog={catalog}
+                onSaved={onProfileSaved}
+                onError={setError}
+              />
+            ) : null}
+
             {onboarding && signupComplete ? (
               <div className="card stack" role="status">
                 <div>
@@ -260,113 +288,14 @@ export default function ServePage() {
           </div>
 
           <div className="stack">
-            <div className="card">
-              <p className="eyebrow">Committed slots</p>
-              {slots.length === 0 ? (
-                <p className="muted small" style={{ margin: 0 }}>
-                  Nothing committed yet. Nobody can be matched to you until you do.
-                </p>
-              ) : (
-                <ul className="list-reset">
-                  {slots.map((slot) => (
-                    <li key={slot.id} className="line-item">
-                      <div>
-                        <div>{formatRange(slot.startsAt, slot.endsAt)}</div>
-                        <div className="mono muted">
-                          {slot.serviceTypes
-                            .map(
-                              (id) =>
-                                catalog?.serviceTypes.find((type) => type.id === id)?.label ?? id,
-                            )
-                            .join(' · ')}
-                        </div>
-                        {slot.note ? <div className="small muted">{slot.note}</div> : null}
-                      </div>
-                      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                        <span
-                          className={`tag ${
-                            slot.status === 'open'
-                              ? 'olive'
-                              : slot.status === 'booked'
-                                ? 'amber'
-                                : 'muted'
-                          }`}
-                        >
-                          {slot.status}
-                        </span>
-                        {slot.status === 'open' ? (
-                          <button
-                            type="button"
-                            className="ghost small"
-                            disabled={pending}
-                            onClick={() => void withdrawSlot(slot.id)}
-                          >
-                            Withdraw
-                          </button>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="card">
-              <p className="eyebrow">People counting on you</p>
-              {bookings.length === 0 ? (
-                <p className="muted small" style={{ margin: 0 }}>
-                  No bookings yet.
-                </p>
-              ) : (
-                <ul className="list-reset">
-                  {bookings.map((booking) => (
-                    <li key={booking.id} className="line-item">
-                      <div>
-                        <div>
-                          <strong>{booking.requester.name}</strong> · {booking.serviceLabel}
-                        </div>
-                        <div className="mono muted">
-                          {formatRange(booking.startsAt, booking.endsAt)}
-                        </div>
-                        <div className="small muted">
-                          {booking.location.address ??
-                            `${booking.location.lat.toFixed(3)}, ${booking.location.lng.toFixed(3)}`}
-                          {booking.requester.phone ? ` · ${booking.requester.phone}` : ''}
-                          {booking.notes ? ` · “${booking.notes}”` : ''}
-                        </div>
-                      </div>
-                      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                        <span
-                          className={`tag ${booking.status === 'confirmed' ? 'amber' : 'muted'}`}
-                        >
-                          {booking.status}
-                        </span>
-                        {booking.status === 'confirmed' ? (
-                          <>
-                            <button
-                              type="button"
-                              className="small"
-                              disabled={pending}
-                              onClick={() => void updateBooking(booking.id, 'completed')}
-                            >
-                              Done
-                            </button>
-                            <button
-                              type="button"
-                              className="ghost danger small"
-                              disabled={pending}
-                              onClick={() => void updateBooking(booking.id, 'cancelled')}
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <CommitmentBoard
+              slots={slots}
+              bookings={bookings}
+              catalog={catalog}
+              pending={pending}
+              onWithdraw={(slotId) => void withdrawSlot(slotId)}
+              onUpdateBooking={(bookingId, status) => void updateBooking(bookingId, status)}
+            />
           </div>
         </div>
       )}
@@ -428,6 +357,482 @@ function LoginForm({
         Not enrolled yet? <button type="button" className="ghost small" onClick={onStartEnrollment}>Sign up to serve</button>
       </p>
     </div>
+  );
+}
+
+/**
+ * Everything the sign-up form asked for, editable afterwards -- except the
+ * phone number, which identifies the enrolment. Collapsed by default so the
+ * dashboard leads with commitments rather than a wall of fields.
+ */
+function ProfileCard({
+  provider,
+  catalog,
+  onSaved,
+  onError,
+}: {
+  provider: Provider;
+  catalog: Catalog | null;
+  onSaved: (updated: Provider) => void;
+  onError: (error: ApiError) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const offering = provider.offerings[0];
+  const [name, setName] = useState(provider.name);
+  const [branch, setBranch] = useState<Branch>(provider.branch);
+  const [yearsOfService, setYearsOfService] = useState(provider.yearsOfService);
+  const [email, setEmail] = useState(provider.email ?? '');
+  const [bio, setBio] = useState(provider.bio ?? '');
+  const [zip, setZip] = useState(provider.servesFrom ?? '');
+  const [model, setModel] = useState(provider.vehicle?.model ?? '');
+  const [plate, setPlate] = useState(provider.vehicle?.licensePlate ?? '');
+  const [rateType, setRateType] = useState<Offering['rateType']>(offering?.rateType ?? 'volunteer');
+  const [hourlyRateUsd, setHourlyRateUsd] = useState(offering?.hourlyRateUsd ?? 0);
+
+  /** Re-seed the form whenever a fresh record arrives, unless mid-edit. */
+  useEffect(() => {
+    if (editing) return;
+    setName(provider.name);
+    setBranch(provider.branch);
+    setYearsOfService(provider.yearsOfService);
+    setEmail(provider.email ?? '');
+    setBio(provider.bio ?? '');
+    setZip(provider.servesFrom ?? '');
+    setModel(provider.vehicle?.model ?? '');
+    setPlate(provider.vehicle?.licensePlate ?? '');
+    setRateType(provider.offerings[0]?.rateType ?? 'volunteer');
+    setHourlyRateUsd(provider.offerings[0]?.hourlyRateUsd ?? 0);
+  }, [provider, editing]);
+
+  async function save() {
+    setPending(true);
+    setSaved(false);
+    try {
+      const { provider: updated } = await patch<{ provider: Provider }>(
+        `/api/v1/providers/${provider.id}`,
+        {
+          name,
+          branch,
+          yearsOfService,
+          email,
+          bio,
+          zipCode: zip,
+          vehicle: { model, licensePlate: plate },
+          offerings: (provider.offerings.length ? provider.offerings : [{ serviceType: 'rides' }]).map(
+            (existing) => ({
+              ...existing,
+              rateType,
+              hourlyRateUsd: rateType === 'hourly' ? hourlyRateUsd : 0,
+            }),
+          ),
+        },
+      );
+      onSaved(updated);
+      setEditing(false);
+      setSaved(true);
+    } catch (caught) {
+      onError(caught as ApiError);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="card">
+        <div className="match-head">
+          <div>
+            <p className="eyebrow">Your details</p>
+            <p className="small muted" style={{ margin: 0 }}>
+              {BRANCH_LABELS[provider.branch]} · {provider.yearsOfService} yrs · {provider.servesFrom}
+              {provider.vehicle ? ` · ${provider.vehicle.model} (${provider.vehicle.licensePlate})` : ''}
+            </p>
+            {saved ? (
+              <p className="small" style={{ margin: '6px 0 0', color: 'var(--olive)' }}>
+                Saved.
+              </p>
+            ) : null}
+          </div>
+          <button type="button" className="ghost small" onClick={() => setEditing(true)}>
+            Edit details
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="card stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <p className="eyebrow">Your details</p>
+
+      <div className="row">
+        <label className="field">
+          <span>Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
+        </label>
+        <label className="field">
+          <span>Branch</span>
+          <select value={branch} onChange={(e) => setBranch(e.target.value as Branch)}>
+            {(catalog?.branches ?? []).map((value) => (
+              <option key={value} value={value}>
+                {BRANCH_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Years served</span>
+          <input
+            type="number"
+            min={0}
+            max={60}
+            value={yearsOfService}
+            onChange={(e) => setYearsOfService(Number(e.target.value))}
+          />
+        </label>
+      </div>
+
+      <div className="row">
+        <label className="field">
+          <span>Email</span>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </label>
+        <label className="field">
+          <span>Phone</span>
+          <input value={provider.phone ?? ''} readOnly disabled />
+        </label>
+      </div>
+      <p className="small muted" style={{ margin: '-4px 0 0' }}>
+        Your phone number is how we recognise this enrolment, so it can&apos;t be changed here. To
+        move to a new number you would need to sign up again — we&apos;ll add a proper transfer
+        later so nobody has to rebuild their history.
+      </p>
+
+      <label className="field">
+        <span>Short bio</span>
+        <textarea value={bio} onChange={(e) => setBio(e.target.value)} />
+      </label>
+
+      <label className="field" style={{ maxWidth: 200 }}>
+        <span>Your ZIP code</span>
+        <input
+          value={zip}
+          onChange={(e) => setZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+          inputMode="numeric"
+          required
+        />
+      </label>
+
+      <div className="row">
+        <label className="field">
+          <span>Car model</span>
+          <input value={model} onChange={(e) => setModel(e.target.value)} required minLength={2} />
+        </label>
+        <label className="field">
+          <span>License plate</span>
+          <input
+            value={plate}
+            onChange={(e) => setPlate(e.target.value.toUpperCase())}
+            required
+            minLength={2}
+            maxLength={16}
+          />
+        </label>
+      </div>
+
+      <div className="row">
+        <label className="field" style={{ maxWidth: 170 }}>
+          <span>Terms</span>
+          <select
+            value={rateType}
+            onChange={(e) => setRateType(e.target.value as Offering['rateType'])}
+          >
+            <option value="volunteer">Volunteer</option>
+            <option value="hourly">Paid hourly</option>
+          </select>
+        </label>
+        {rateType === 'hourly' ? (
+          <label className="field" style={{ maxWidth: 150 }}>
+            <span>Your rate ($/hr)</span>
+            <input
+              type="number"
+              min={0}
+              max={500}
+              value={hourlyRateUsd}
+              onChange={(e) => setHourlyRateUsd(Number(e.target.value))}
+            />
+          </label>
+        ) : null}
+      </div>
+
+      <div className="row" style={{ gap: 10 }}>
+        <button type="submit" disabled={pending || zip.length !== 5}>
+          {pending ? 'Saving…' : 'Save changes'}
+        </button>
+        <button type="button" className="ghost" disabled={pending} onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Commitments, with the rides that landed on each one folded underneath.
+ *
+ * Blocks are never dropped from this list once they have history: a block that
+ * has ended, or one the veteran withdrew after a ride was already assigned to
+ * it, stays visible so the assignment history survives. Only an untouched
+ * withdrawn block disappears, because there is nothing to remember about it.
+ */
+function CommitmentBoard({
+  slots,
+  bookings,
+  catalog,
+  pending,
+  onWithdraw,
+  onUpdateBooking,
+}: {
+  slots: Slot[];
+  bookings: Booking[];
+  catalog: Catalog | null;
+  pending: boolean;
+  onWithdraw: (slotId: string) => void;
+  onUpdateBooking: (bookingId: string, status: 'completed' | 'cancelled') => void;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const serviceLabel = (id: string) =>
+    catalog?.serviceTypes.find((type) => type.id === id)?.label ?? id;
+
+  const groups = useMemo(() => {
+    const bySlot = new Map<string, Booking[]>();
+    for (const booking of bookings) {
+      const list = bySlot.get(booking.slotId);
+      if (list) list.push(booking);
+      else bySlot.set(booking.slotId, [booking]);
+    }
+    for (const list of bySlot.values()) list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+
+    const built = slots
+      .map((slot) => {
+        const rides = bySlot.get(slot.id) ?? [];
+        bySlot.delete(slot.id);
+        return { slot, rides };
+      })
+      // A withdrawn block with nothing assigned to it is just noise.
+      .filter(({ slot, rides }) => slot.status !== 'cancelled' || rides.length > 0);
+
+    // Any ride whose block we can't see still has to appear somewhere.
+    const orphaned = [...bySlot.values()].flat();
+
+    const upcoming = built
+      .filter(({ slot }) => !hasEnded(slot.endsAt))
+      .sort((a, b) => a.slot.startsAt.localeCompare(b.slot.startsAt));
+    const past = built
+      .filter(({ slot }) => hasEnded(slot.endsAt))
+      .sort((a, b) => b.slot.startsAt.localeCompare(a.slot.startsAt));
+
+    return { upcoming, past, orphaned };
+  }, [slots, bookings]);
+
+  // Open the blocks with someone actually waiting; the veteran needs that phone
+  // number without hunting for it.
+  const autoOpen = useMemo(
+    () =>
+      new Set(
+        [...groups.upcoming, ...groups.past]
+          .filter(({ rides }) => rides.some((ride) => ride.status === 'confirmed'))
+          .map(({ slot }) => slot.id),
+      ),
+    [groups],
+  );
+
+  const isOpen = (slotId: string) => expanded[slotId] ?? autoOpen.has(slotId);
+  const toggle = (slotId: string) =>
+    setExpanded((current) => ({ ...current, [slotId]: !isOpen(slotId) }));
+
+  function renderGroup({ slot, rides }: { slot: Slot; rides: Booking[] }) {
+    const open = isOpen(slot.id);
+    const ended = hasEnded(slot.endsAt);
+    const live = rides.filter((ride) => ride.status === 'confirmed').length;
+    const withdrawable = slot.status === 'open' && !ended;
+
+    return (
+      <li key={slot.id} className="block-group">
+        <button
+          type="button"
+          className="block-head"
+          aria-expanded={open}
+          onClick={() => toggle(slot.id)}
+        >
+          <span className={`caret ${open ? 'open' : ''}`} aria-hidden="true" />
+          <span className="block-when">
+            <span>{formatRange(slot.startsAt, slot.endsAt)}</span>
+            <span className="mono muted">
+              {slot.serviceTypes.map(serviceLabel).join(' · ')}
+              {slot.note ? ` · ${slot.note}` : ''}
+            </span>
+          </span>
+          <span className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'nowrap' }}>
+            {/* One count, not two: "to drive" already implies there are rides. */}
+            {live > 0 ? (
+              <span className="tag amber">{live} to drive</span>
+            ) : (
+              <span className="tag muted">
+                {rides.length === 0
+                  ? 'no rides'
+                  : `${rides.length} ride${rides.length === 1 ? '' : 's'}`}
+              </span>
+            )}
+            <span
+              className={`tag ${
+                slot.status === 'cancelled'
+                  ? 'muted'
+                  : ended
+                    ? 'muted'
+                    : slot.status === 'booked'
+                      ? 'amber'
+                      : 'olive'
+              }`}
+            >
+              {slot.status === 'cancelled' ? 'withdrawn' : ended ? 'ended' : slot.status}
+            </span>
+          </span>
+        </button>
+
+        {open ? (
+          <div className="block-body">
+            {rides.length === 0 ? (
+              <p className="small muted" style={{ margin: 0 }}>
+                {slot.status === 'cancelled'
+                  ? 'Withdrawn before anyone was matched to it.'
+                  : ended
+                    ? 'This block passed with nobody matched to it.'
+                    : 'Nobody matched to this block yet.'}
+              </p>
+            ) : (
+              <ul className="list-reset">
+                {rides.map((ride) => (
+                  <li key={ride.id} className="line-item">
+                    <div>
+                      <div>
+                        <strong>{ride.requester.name}</strong> · {ride.serviceLabel}
+                      </div>
+                      <div className="mono muted">{formatRange(ride.startsAt, ride.endsAt)}</div>
+                      <div className="small muted">
+                        {ride.location.address ??
+                          `${ride.location.lat.toFixed(3)}, ${ride.location.lng.toFixed(3)}`}
+                        {ride.requester.phone ? ` · ${ride.requester.phone}` : ''}
+                        {ride.notes ? ` · \u201c${ride.notes}\u201d` : ''}
+                      </div>
+                    </div>
+                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <span className={`tag ${ride.status === 'confirmed' ? 'amber' : 'muted'}`}>
+                        {ride.status}
+                      </span>
+                      {ride.status === 'confirmed' ? (
+                        <>
+                          <button
+                            type="button"
+                            className="small"
+                            disabled={pending}
+                            onClick={() => onUpdateBooking(ride.id, 'completed')}
+                          >
+                            Done
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost danger small"
+                            disabled={pending}
+                            onClick={() => onUpdateBooking(ride.id, 'cancelled')}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {withdrawable ? (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="ghost small"
+                  disabled={pending}
+                  onClick={() => onWithdraw(slot.id)}
+                >
+                  Withdraw this block
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </li>
+    );
+  }
+
+  const nothingYet =
+    groups.upcoming.length === 0 && groups.past.length === 0 && groups.orphaned.length === 0;
+
+  return (
+    <>
+      <div className="card">
+        <p className="eyebrow">Your commitments</p>
+        {nothingYet ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            Nothing committed yet. Nobody can be matched to you until you do.
+          </p>
+        ) : groups.upcoming.length === 0 ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            No upcoming blocks. Commit one and riders can be matched to you again.
+          </p>
+        ) : (
+          <ul className="list-reset">{groups.upcoming.map(renderGroup)}</ul>
+        )}
+      </div>
+
+      {groups.past.length > 0 ? (
+        <div className="card">
+          <p className="eyebrow">Past blocks</p>
+          <p className="small muted" style={{ margin: '0 0 8px' }}>
+            Kept so you can look back at who you drove.
+          </p>
+          <ul className="list-reset">{groups.past.map(renderGroup)}</ul>
+        </div>
+      ) : null}
+
+      {groups.orphaned.length > 0 ? (
+        <div className="card">
+          <p className="eyebrow">Rides without a block</p>
+          <ul className="list-reset">
+            {groups.orphaned.map((ride) => (
+              <li key={ride.id} className="line-item">
+                <div>
+                  <div>
+                    <strong>{ride.requester.name}</strong> · {ride.serviceLabel}
+                  </div>
+                  <div className="mono muted">{formatRange(ride.startsAt, ride.endsAt)}</div>
+                </div>
+                <span className="tag muted">{ride.status}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 }
 

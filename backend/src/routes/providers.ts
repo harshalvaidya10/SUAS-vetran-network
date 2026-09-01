@@ -93,6 +93,16 @@ providersRouter.get('/:id', async (req, res) => {
 
 providersRouter.patch('/:id', async (req, res) => {
   const provider = await requireProvider(req.params.id);
+
+  // The phone number identifies the enrolment, so it can't be edited in place.
+  // Say so rather than letting the schema drop it and reporting success.
+  if (req.body && typeof req.body === 'object' && 'phone' in req.body) {
+    throw ApiError.badRequest(
+      'A phone number can\u2019t be changed here — it identifies this enrolment. ' +
+        'Sign up again with the new number for now.',
+    );
+  }
+
   const patch = parse(providerUpdateSchema, req.body);
 
   // Changing ZIP moves the point they're matched from.

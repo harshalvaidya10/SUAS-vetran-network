@@ -4,6 +4,12 @@ import { MILITARY_BRANCHES, SERVICE_TYPE_IDS } from '../domain/serviceCatalog.js
 
 const isoDateTime = z.string().datetime({ offset: true });
 
+/** What a rider is shown so they can identify the car pulling up. */
+export const vehicleSchema = z.object({
+  model: z.string().trim().min(2).max(80),
+  licensePlate: z.string().trim().min(2).max(16).transform((value) => value.toUpperCase()),
+});
+
 /** Default reach for a veteran who signed up with just a ZIP. */
 export const DEFAULT_SERVICE_RADIUS_KM = 25;
 
@@ -32,10 +38,7 @@ export const providerCreateSchema = z.object({
   bio: z.string().trim().max(500).default(''),
   email: z.string().email(),
   phone: z.string().trim().min(7).max(30),
-  vehicle: z.object({
-    model: z.string().trim().min(2).max(80),
-    licensePlate: z.string().trim().min(2).max(16).transform((value) => value.toUpperCase()),
-  }),
+  vehicle: vehicleSchema,
   /**
    * The only location we ask a veteran for. `base` is derived from its
    * centroid — see the providers route — so the sign-up form never has to make
@@ -47,10 +50,20 @@ export const providerCreateSchema = z.object({
   offerings: z.array(offeringSchema).min(1, 'Pick at least one service you can provide'),
 });
 
+/**
+ * A veteran can revise anything they gave us at sign-up except the phone
+ * number, which identifies the enrolment. `phone` is absent on purpose; the
+ * route rejects it explicitly rather than dropping it silently.
+ */
 export const providerUpdateSchema = z
   .object({
     active: z.boolean(),
+    name: z.string().trim().min(2).max(80),
+    branch: z.enum(MILITARY_BRANCHES),
+    yearsOfService: z.number().int().min(0).max(60),
     bio: z.string().trim().max(500),
+    email: z.string().email(),
+    vehicle: vehicleSchema,
     serviceRadiusKm: z.number().min(1).max(200),
     zipCode: zipCodeSchema,
     offerings: z.array(offeringSchema).min(1),
