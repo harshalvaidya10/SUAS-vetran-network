@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
 import { releaseFinishedDemoRides } from '../demoRelease.js';
+import { releaseUnclaimedBlocks } from '../reconcileBlocks.js';
 import { countRecentBookings, findMatches, type MatchCriteria } from '../domain/matching.js';
 import { getServiceType } from '../domain/serviceCatalog.js';
 import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
@@ -103,6 +104,8 @@ export async function handleServiceRequest(req: Request, res: Response) {
   const providers = await store.listProviders();
   // Hand back any block whose simulated ride has finished before matching.
   await releaseFinishedDemoRides(now);
+  // And any block still held for a ride that already ended.
+  await releaseUnclaimedBlocks(now);
 
   const result = findMatches(criteria, {
     providers,
