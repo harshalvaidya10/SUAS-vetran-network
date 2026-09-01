@@ -15,10 +15,19 @@ export interface ServiceType {
   defaultDurationMinutes: number;
 }
 
+export interface PilotTerms {
+  version: string;
+  headline: string;
+  summary: string;
+  points: { title: string; detail: string }[];
+  acknowledgement: string;
+}
+
 export interface Catalog {
   serviceTypes: ServiceType[];
   branches: Branch[];
   matchWeights: Record<string, number>;
+  pilotTerms: PilotTerms;
   distance: {
     /** How far from their ZIP a veteran gets matched. */
     serviceRadiusKm: number;
@@ -47,6 +56,8 @@ export interface Provider {
   email?: string;
   phone?: string;
   vehicle?: { model: string; licensePlate: string } | null;
+  /** Present on the veteran's own record once they accept the pilot terms. */
+  pilotConsent?: { version: string; acceptedAt: string } | null;
 }
 
 export interface Slot {

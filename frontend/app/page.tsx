@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getCatalog, getProviders, type Catalog, type Provider, type ServiceType } from '@/lib/api';
+import { PilotNotice } from '@/components/PilotNotice';
 import { BRANCH_LABELS, formatMiles } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +9,7 @@ async function loadNetwork(): Promise<{
   serviceTypes: ServiceType[];
   providers: Provider[];
   distance: Catalog['distance'] | null;
+  pilotTerms: Catalog['pilotTerms'] | null;
   offline: boolean;
 }> {
   try {
@@ -16,19 +18,26 @@ async function loadNetwork(): Promise<{
       serviceTypes: catalog.serviceTypes,
       providers: roster.providers,
       distance: catalog.distance,
+      pilotTerms: catalog.pilotTerms,
       offline: false,
     };
   } catch {
-    return { serviceTypes: [], providers: [], distance: null, offline: true };
+    return { serviceTypes: [], providers: [], distance: null, pilotTerms: null, offline: true };
   }
 }
 
 export default async function HomePage() {
-  const { serviceTypes, providers, distance, offline } = await loadNetwork();
+  const { serviceTypes, providers, distance, pilotTerms, offline } = await loadNetwork();
   const committedHours = providers.length;
 
   return (
     <>
+      {pilotTerms ? (
+        <div style={{ marginTop: 24 }}>
+          <PilotNotice terms={pilotTerms} compact />
+        </div>
+      ) : null}
+
       <section className="hero">
         <p className="eyebrow">For veterans who still have hours to give</p>
         <h1>

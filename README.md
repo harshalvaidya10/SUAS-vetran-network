@@ -280,6 +280,73 @@ PostgreSQL; without it, local development uses SQLite. Tests use an isolated in-
 **The matcher is a pure function.** `findMatches(criteria, context)` does no I/O, which is why
 the ranking rules are covered by fast unit tests.
 
+## Pilot terms and consent
+
+The deployed site is a **pilot**, and says so. `backend/src/domain/pilotTerms.ts` holds the
+disclosures in one place, served from `GET /api/v1/catalog` and rendered by
+`frontend/components/PilotNotice.tsx` — so the wording a veteran reads is the wording the API
+records against them, and it cannot drift.
+
+The notice states plainly that this is **not a VA service**, that we run **no identity, service,
+background or driving-record checks**, that **no insurance is provided**, that there is **no
+CCPA/CPRA program** yet (with a list of exactly what is stored and what a matched rider is
+shown), that it is meant for people who already know each other, and that anyone can leave and
+have their record deleted.
+
+**Consent is enforced, not decorative.** Sign-up requires `pilotTermsVersion`, and the API
+refuses a version it no longer serves, so nobody is enrolled against wording they were never
+shown. What is accepted is stored on the enrolment as `pilotConsent { version, acceptedAt }`.
+Anyone enrolled before a version existed is asked to accept it next time they log in — asked,
+not locked out, since the point is to know who agreed to what.
+
+**Bump `PILOT_TERMS_VERSION` whenever the wording changes materially.** Existing veterans are
+then re-prompted, and stale pages are refused rather than silently accepted.
+
+This covers the veteran side only. The separate rider app needs its own equivalent before real
+riders use it — the disclosures about insurance and identity apply just as much to whoever is
+getting in the car.
+
+## Phone login (OTP)
+
+Veterans sign in with a code texted to the phone number they enrolled with.
+
+`SMS_PROVIDER` picks how that code is delivered:
+
+| | |
+|---|---|
+| `mock` (default) | Prints the code to the log and always uses `MOCK_OTP_CODE` (`123456`). No account, no cost, no phone needed — what local development and the tests use. |
+| `twilio` | Sends a real text via Twilio Programmable SMS. Needs `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER`. |
+
+**We own the code lifecycle, not the SMS provider.** The code is generated here,
+stored hashed (HMAC keyed to the phone, so one leaked row can't be replayed
+against another number), expires after `OTP_TTL_MINUTES`, dies after
+`OTP_MAX_ATTEMPTS` wrong guesses, and is single-use. `OTP_RESEND_COOLDOWN_SECONDS`
+stops a double-tap re-texting and stops anyone running up an SMS bill. Challenges
+live in the database, not process memory, because the instance that sends a code
+on Vercel is rarely the one that checks it.
+
+`request-code` answers identically whether or not the number is enrolled, so it
+can't be used to probe who is on the network.
+
+Message wording lives in `backend/src/sms/messages.ts`, separate from delivery,
+so rider-facing texts can be added beside the driver-facing ones later.
+
+### Turning on real texts
+
+```bash
+SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM_NUMBER=+16195550142
+OTP_HASH_SECRET=<something long and random>
+```
+
+No new dependency is involved — Twilio's Messages API is a form POST with basic
+auth, sent with `fetch`. Two things to expect before a public demo: a **trial
+account can only text numbers you have verified** in the Twilio console, and US
+long-code traffic to consumers needs **A2P 10DLC registration**, which takes
+days and is not something to discover on demo morning.
+
 ## Demo mode
 
 `DEMO_SLOT_RELEASE_MINUTES` defaults to **5**, in every environment including the hosted one,

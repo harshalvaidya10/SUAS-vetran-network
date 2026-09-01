@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { PilotNotice } from '@/components/PilotNotice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { PilotTerms } from '@/lib/api';
 import {
   ApiError,
   del,
@@ -240,6 +242,16 @@ export default function ServePage() {
               </div>
             </div>
 
+            {!onboarding && provider && catalog?.pilotTerms &&
+            provider.pilotConsent?.version !== catalog.pilotTerms.version ? (
+              <PilotConsentPrompt
+                provider={provider}
+                terms={catalog.pilotTerms}
+                onAccepted={onProfileSaved}
+                onError={setError}
+              />
+            ) : null}
+
             {!onboarding && provider ? (
               <ProfileCard
                 provider={provider}
@@ -361,6 +373,61 @@ function LoginForm({
 }
 
 /**
+ * Shown to anyone enrolled before the pilot terms existed, or before the
+ * current version. They stay matchable meanwhile -- this asks rather than locks
+ * them out -- but the pilot should be able to show who has agreed to what.
+ */
+function PilotConsentPrompt({
+  provider,
+  terms,
+  onAccepted,
+  onError,
+}: {
+  provider: Provider;
+  terms: PilotTerms;
+  onAccepted: (updated: Provider) => void;
+  onError: (error: ApiError) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+
+  async function accept() {
+    setPending(true);
+    try {
+      const { provider: updated } = await patch<{ provider: Provider }>(
+        `/api/v1/providers/${provider.id}`,
+        { pilotTermsVersion: terms.version },
+      );
+      onAccepted(updated);
+    } catch (caught) {
+      onError(caught as ApiError);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="card stack">
+      <PilotNotice terms={terms} />
+      <label className="field checkbox" style={{ alignItems: 'flex-start' }}>
+        <input
+          type="checkbox"
+          checked={accepted}
+          onChange={(e) => setAccepted(e.target.checked)}
+          style={{ marginTop: 3 }}
+        />
+        <span>{terms.acknowledgement}</span>
+      </label>
+      <div>
+        <button type="button" disabled={pending || !accepted} onClick={() => void accept()}>
+          {pending ? 'Saving…' : 'I agree, keep me on the board'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Everything the sign-up form asked for, editable afterwards -- except the
  * phone number, which identifies the enrolment. Collapsed by default so the
  * dashboard leads with commitments rather than a wall of fields.
@@ -450,6 +517,12 @@ function ProfileCard({
               {BRANCH_LABELS[provider.branch]} · {provider.yearsOfService} yrs · {provider.servesFrom}
               {provider.vehicle ? ` · ${provider.vehicle.model} (${provider.vehicle.licensePlate})` : ''}
             </p>
+            {provider.pilotConsent ? (
+              <p className="mono muted" style={{ margin: '4px 0 0' }}>
+                Pilot terms {provider.pilotConsent.version} accepted{' '}
+                {new Date(provider.pilotConsent.acceptedAt).toLocaleDateString()}
+              </p>
+            ) : null}
             {saved ? (
               <p className="small" style={{ margin: '6px 0 0', color: 'var(--olive)' }}>
                 Saved.
@@ -856,6 +929,7 @@ function EnlistForm({
   const [zip, setZip] = useState('');
   const [rateType, setRateType] = useState<Offering['rateType']>('volunteer');
   const [hourlyRateUsd, setHourlyRateUsd] = useState(0);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [pending, setPending] = useState(false);
 
   // Driving is the whole MVP catalog, so there is nothing to pick — the offering
@@ -879,6 +953,8 @@ function EnlistForm({
         phone,
         vehicle: { model: vehicleModel, licensePlate },
         zipCode: zip,
+        // The version actually rendered above, so the API can refuse a stale page.
+        pilotTermsVersion: catalog?.pilotTerms.version,
         offerings,
       });
       onEnlisted(provider);
@@ -1039,10 +1115,31 @@ function EnlistForm({
         </div>
       </div>
 
-      <div>
-        <button type="submit" disabled={pending || offerings.length === 0 || zip.length !== 5}>
+      {catalog?.pilotTerms ? (
+        <>
+          <PilotNotice terms={catalog.pilotTerms} />
+          <label className="field checkbox" style={{ alignItems: 'flex-start' }}>
+            <input
+              type="checkbox"
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+              style={{ marginTop: 3 }}
+            />
+            <span>{catalog.pilotTerms.acknowledgement}</span>
+          </label>
+        </>
+      ) : null}
+
+      <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+        <button
+          type="submit"
+          disabled={pending || offerings.length === 0 || zip.length !== 5 || !acceptedTerms}
+        >
           {pending ? 'Enlisting…' : 'Join the network'}
         </button>
+        {!acceptedTerms ? (
+          <span className="mono muted">accept the pilot terms to continue</span>
+        ) : null}
       </div>
     </form>
   );
