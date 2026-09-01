@@ -3,6 +3,7 @@ import { store } from '../data/store.js';
 import { ApiError } from '../http/errors.js';
 import { serializeBooking } from '../http/serialize.js';
 import { bookingUpdateSchema, parse } from '../http/validation.js';
+import { requireOwnership, requireVeteranSession, type AuthedRequest } from '../http/authGuards.js';
 
 export const bookingsRouter: Router = Router();
 
@@ -17,9 +18,10 @@ bookingsRouter.get('/:id', async (req, res) => {
  * job is what grows a veteran's track record; cancelling releases the slot back
  * to the network so someone else can use it.
  */
-bookingsRouter.patch('/:id', async (req, res) => {
+bookingsRouter.patch('/:id', requireVeteranSession, async (req: AuthedRequest, res) => {
   const booking = await store.getBooking(String(req.params.id));
   if (!booking) throw ApiError.notFound('No such booking.');
+  requireOwnership(req, booking.providerId);
   if (booking.status !== 'confirmed') {
     throw ApiError.conflict(`This booking is already ${booking.status}.`);
   }

@@ -6,6 +6,7 @@ import { codeMatches, generateCode, hashCode } from '../domain/otp.js';
 import { ApiError } from '../http/errors.js';
 import { parse } from '../http/validation.js';
 import { providerWithContact } from '../http/serialize.js';
+import { issueSession } from '../http/authGuards.js';
 import { messages } from '../sms/messages.js';
 import { smsTransport } from '../sms/index.js';
 
@@ -29,6 +30,12 @@ async function findByPhone(phone: string) {
  * numbers are on the network.
  */
 authRouter.post('/request-code', async (req, res) => {
+  // Neither Postgres nor SQLite expires rows on their own, and expiry is
+  // otherwise only enforced when something is read -- so a session abandoned
+  // after it lapsed, or a code never submitted, would sit there for good.
+  // Sweeping here bounds that by the login rate rather than by nothing.
+  await store.purgeExpired(new Date().toISOString());
+
   const { phone } = parse(phoneSchema, req.body);
   const phoneKey = normalizePhone(phone);
   const [provider] = await findByPhone(phone);
@@ -121,5 +128,9 @@ authRouter.post('/verify-code', async (req, res) => {
   }
 
   await store.deleteLoginChallenge(phoneKey);
-  res.json({ provider: providerWithContact(matches[0]!) });
+
+  // The session is what later proves this is the same person; provider ids are
+  // public, so the id alone can't be treated as a credential.
+  const session = await issueSession(matches[0]!.id);
+  res.json({ provider: providerWithContact(matches[0]!), session });
 });

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { createApp } from '../app.js';
 import { store } from '../data/store.js';
 import { PILOT_TERMS_VERSION } from '../domain/pilotTerms.js';
+import { issueSession } from '../http/authGuards.js';
 
 async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
   const server = createApp().listen(0);
@@ -101,9 +102,10 @@ test('someone enrolled before the terms existed can accept them afterwards', asy
     });
     assert.equal(provider.pilotConsent, undefined);
 
+    const { token } = await issueSession(provider.id);
     const response = await fetch(`${baseUrl}/api/v1/providers/${provider.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ pilotTermsVersion: PILOT_TERMS_VERSION }),
     });
     assert.equal(response.status, 200);

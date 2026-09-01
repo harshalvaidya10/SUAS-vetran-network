@@ -7,6 +7,7 @@ import type { PilotTerms } from '@/lib/api';
 import {
   ApiError,
   del,
+  setSessionToken,
   getCatalog,
   getProvider,
   getProviderBookings,
@@ -103,7 +104,8 @@ export default function ServePage() {
     void refresh(providerId);
   }, [providerId, refresh]);
 
-  function onEnlisted(created: Provider) {
+  function onEnlisted(created: Provider, sessionToken?: string) {
+    setSessionToken(sessionToken ?? null);
     setProvider(created);
     setProviderId(created.id);
     setOnboarding(true);
@@ -116,6 +118,7 @@ export default function ServePage() {
   }
 
   function signOut() {
+    setSessionToken(null);
     setProviderId(null);
     setProvider(null);
     setSlots([]);
@@ -340,7 +343,12 @@ function LoginForm({
   async function verifyCode() {
     setPending(true);
     try {
-      const { provider } = await post<{ provider: Provider }>('/api/v1/auth/verify-code', { phone, code });
+      const { provider, session } = await post<{
+        provider: Provider;
+        session?: { token: string };
+      }>('/api/v1/auth/verify-code', { phone, code });
+      // Everything the veteran does afterwards is authorised by this token.
+      setSessionToken(session?.token ?? null);
       onLoggedIn(provider);
     } catch (caught) { onError(caught as ApiError); } finally { setPending(false); }
   }
@@ -918,7 +926,7 @@ function EnlistForm({
   onError,
 }: {
   catalog: Catalog | null;
-  onEnlisted: (provider: Provider) => void;
+  onEnlisted: (provider: Provider, sessionToken?: string) => void;
   onError: (error: ApiError) => void;
 }) {
   const [name, setName] = useState('');
@@ -947,7 +955,10 @@ function EnlistForm({
   async function submit() {
     setPending(true);
     try {
-      const { provider } = await post<{ provider: Provider }>('/api/v1/providers', {
+      const { provider, session } = await post<{
+        provider: Provider;
+        session?: { token: string };
+      }>('/api/v1/providers', {
         name,
         branch,
         yearsOfService,
@@ -960,7 +971,7 @@ function EnlistForm({
         pilotTermsVersion: catalog?.pilotTerms.version,
         offerings,
       });
-      onEnlisted(provider);
+      onEnlisted(provider, session?.token);
     } catch (caught) {
       onError(caught as ApiError);
     } finally {

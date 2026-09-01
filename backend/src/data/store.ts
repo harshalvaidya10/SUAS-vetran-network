@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Pool } from 'pg';
-import type { AvailabilitySlot, Booking, LoginChallenge, Provider, ServiceRequestRecord } from '../types.js';
+import type { AvailabilitySlot, Booking, LoginChallenge, Provider, ServiceRequestRecord, Session } from '../types.js';
 
 export interface Store {
   reset(): Promise<void>;
@@ -13,14 +13,19 @@ export interface Store {
   createRequest(input: Omit<ServiceRequestRecord, 'id' | 'createdAt'>): Promise<ServiceRequestRecord>; getRequest(id: string): Promise<ServiceRequestRecord | undefined>; updateRequest(id: string, patch: Partial<ServiceRequestRecord>): Promise<ServiceRequestRecord | undefined>;
   rememberIdempotentRequest(key: string, requestId: string): Promise<void>; findIdempotentRequest(key: string): Promise<ServiceRequestRecord | undefined>;
   saveLoginChallenge(challenge: LoginChallenge): Promise<void>; getLoginChallenge(phoneKey: string): Promise<LoginChallenge | undefined>; deleteLoginChallenge(phoneKey: string): Promise<void>;
+  saveSession(session: Session): Promise<void>; getSession(tokenHash: string): Promise<Session | undefined>; deleteSession(tokenHash: string): Promise<void>;
+  /** Postgres has no row TTL, so expiry has to be swept rather than assumed. */
+  purgeExpired(now: string): Promise<{ sessions: number; challenges: number }>;
 }
 const created = <T>(input: T): T & { id: string; createdAt: string } => ({ ...input, id: randomUUID(), createdAt: new Date().toISOString() });
 const phoneKey = (phone: string) => phone.replace(/\D/g, '').slice(-10);
 function updateMap<T extends { id: string; createdAt: string }>(map: Map<string, T>, id: string, patch: Partial<T>) { const old = map.get(id); if (!old) return; const value = { ...old, ...patch, id: old.id, createdAt: old.createdAt }; map.set(id, value); return value; }
 
 class MemoryStore implements Store {
-  private providers = new Map<string, Provider>(); private slots = new Map<string, AvailabilitySlot>(); private bookings = new Map<string, Booking>(); private requests = new Map<string, ServiceRequestRecord>(); private idempotency = new Map<string, string>(); private challenges = new Map<string, LoginChallenge>();
-  async reset() { this.providers.clear(); this.slots.clear(); this.bookings.clear(); this.requests.clear(); this.idempotency.clear(); this.challenges.clear(); }
+  private providers = new Map<string, Provider>(); private slots = new Map<string, AvailabilitySlot>(); private bookings = new Map<string, Booking>(); private requests = new Map<string, ServiceRequestRecord>(); private idempotency = new Map<string, string>(); private challenges = new Map<string, LoginChallenge>(); private sessions = new Map<string, Session>();
+  async reset() { this.providers.clear(); this.slots.clear(); this.bookings.clear(); this.requests.clear(); this.idempotency.clear(); this.challenges.clear(); this.sessions.clear(); }
+  async saveSession(session: Session) { this.sessions.set(session.tokenHash, session); } async getSession(tokenHash: string) { return this.sessions.get(tokenHash); } async deleteSession(tokenHash: string) { this.sessions.delete(tokenHash); }
+  async purgeExpired(now: string) { let sessions = 0, challenges = 0; for (const [k, v] of this.sessions) if (v.expiresAt < now) { this.sessions.delete(k); sessions += 1; } for (const [k, v] of this.challenges) if (v.expiresAt < now) { this.challenges.delete(k); challenges += 1; } return { sessions, challenges }; }
   async saveLoginChallenge(challenge: LoginChallenge) { this.challenges.set(challenge.phoneKey, challenge); } async getLoginChallenge(phoneKey: string) { return this.challenges.get(phoneKey); } async deleteLoginChallenge(phoneKey: string) { this.challenges.delete(phoneKey); }
   async createProvider(input: Omit<Provider, 'id' | 'createdAt'>) { const v = created(input); this.providers.set(v.id, v); return v; } async getProvider(id: string) { return this.providers.get(id); } async listProviders() { return [...this.providers.values()]; } async updateProvider(id: string, patch: Partial<Provider>) { return updateMap(this.providers, id, patch); }
   async createSlot(input: Omit<AvailabilitySlot, 'id' | 'createdAt'>) { const v = created(input); this.slots.set(v.id, v); return v; } async getSlot(id: string) { return this.slots.get(id); } async listSlots(filter: { providerId?: string; status?: AvailabilitySlot['status'] } = {}) { return [...this.slots.values()].filter(v => (!filter.providerId || v.providerId === filter.providerId) && (!filter.status || v.status === filter.status)); } async updateSlot(id: string, patch: Partial<AvailabilitySlot>) { return updateMap(this.slots, id, patch); } async claimOpenSlot(id: string) { const v = this.slots.get(id); return v?.status === 'open' ? updateMap(this.slots, id, { status: 'booked' }) : undefined; }
@@ -49,7 +54,9 @@ class SqliteStore implements Store {
     }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS providers_phone_key_unique_idx ON providers(phone_key)');
   }
-  async reset() { this.db.exec('DELETE FROM login_challenges; DELETE FROM idempotency_keys; DELETE FROM bookings; DELETE FROM service_requests; DELETE FROM availability_slots; DELETE FROM providers;'); }
+  async saveSession(session: Session) { this.db.prepare('INSERT OR REPLACE INTO sessions (token_hash,data) VALUES (?,?)').run(session.tokenHash, JSON.stringify(session)); } async getSession(tokenHash: string) { const row = this.db.prepare('SELECT data FROM sessions WHERE token_hash=?').get(tokenHash) as { data?: string } | undefined; return row?.data ? JSON.parse(row.data) as Session : undefined; } async deleteSession(tokenHash: string) { this.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(tokenHash); }
+  async reset() { this.db.exec('DELETE FROM sessions; DELETE FROM login_challenges; DELETE FROM idempotency_keys; DELETE FROM bookings; DELETE FROM service_requests; DELETE FROM availability_slots; DELETE FROM providers;'); }
+  async purgeExpired(now: string) { const sessions = this.db.prepare("DELETE FROM sessions WHERE json_extract(data,'$.expiresAt') < ?").run(now).changes; const challenges = this.db.prepare("DELETE FROM login_challenges WHERE json_extract(data,'$.expiresAt') < ?").run(now).changes; return { sessions: Number(sessions), challenges: Number(challenges) }; }
   async saveLoginChallenge(challenge: LoginChallenge) { this.db.prepare('INSERT OR REPLACE INTO login_challenges (phone_key,data) VALUES (?,?)').run(challenge.phoneKey, JSON.stringify(challenge)); } async getLoginChallenge(phoneKey: string) { const row = this.db.prepare('SELECT data FROM login_challenges WHERE phone_key=?').get(phoneKey) as { data?: string } | undefined; return row?.data ? JSON.parse(row.data) as LoginChallenge : undefined; } async deleteLoginChallenge(phoneKey: string) { this.db.prepare('DELETE FROM login_challenges WHERE phone_key=?').run(phoneKey); }
   private async insert<T extends { id: string }>(table: string, value: T) { this.db.prepare(`INSERT INTO ${table} (id,data) VALUES (?,?)`).run(value.id, JSON.stringify(value)); return value; }
   private async get<T>(table: string, id: string) { const row = this.db.prepare(`SELECT data FROM ${table} WHERE id=?`).get(id) as { data: string } | undefined; return row ? JSON.parse(row.data) as T : undefined; }
@@ -62,7 +69,9 @@ class SqliteStore implements Store {
 }
 
 class PostgresStore implements Store {
-  constructor(private pool: Pool) {} async initialize() { await this.pool.query(POSTGRES_SCHEMA); } async reset() { await this.pool.query('TRUNCATE login_challenges, idempotency_keys, bookings, service_requests, availability_slots, providers CASCADE'); }
+  constructor(private pool: Pool) {} async initialize() { await this.pool.query(POSTGRES_SCHEMA); } async saveSession(session: Session) { await this.pool.query('INSERT INTO sessions (token_hash,data) VALUES ($1,$2) ON CONFLICT (token_hash) DO UPDATE SET data=$2', [session.tokenHash, session]); } async getSession(tokenHash: string) { return (await this.pool.query<{ data: Session }>('SELECT data FROM sessions WHERE token_hash=$1', [tokenHash])).rows[0]?.data; } async deleteSession(tokenHash: string) { await this.pool.query('DELETE FROM sessions WHERE token_hash=$1', [tokenHash]); }
+  async reset() { await this.pool.query('TRUNCATE sessions, login_challenges, idempotency_keys, bookings, service_requests, availability_slots, providers CASCADE'); }
+  async purgeExpired(now: string) { const sessions = (await this.pool.query("DELETE FROM sessions WHERE (data->>'expiresAt')::timestamptz < $1::timestamptz", [now])).rowCount ?? 0; const challenges = (await this.pool.query("DELETE FROM login_challenges WHERE (data->>'expiresAt')::timestamptz < $1::timestamptz", [now])).rowCount ?? 0; return { sessions, challenges }; }
   async saveLoginChallenge(challenge: LoginChallenge) { await this.pool.query('INSERT INTO login_challenges (phone_key,data) VALUES ($1,$2) ON CONFLICT (phone_key) DO UPDATE SET data=$2', [challenge.phoneKey, challenge]); } async getLoginChallenge(phoneKey: string) { return (await this.pool.query<{ data: LoginChallenge }>('SELECT data FROM login_challenges WHERE phone_key=$1', [phoneKey])).rows[0]?.data; } async deleteLoginChallenge(phoneKey: string) { await this.pool.query('DELETE FROM login_challenges WHERE phone_key=$1', [phoneKey]); }
   private async insert<T extends { id: string }>(table: string, value: T) { await this.pool.query(`INSERT INTO ${table} (id, data) VALUES ($1,$2)`, [value.id, value]); return value; }
   private async get<T>(table: string, id: string) { return (await this.pool.query<{ data: T }>(`SELECT data FROM ${table} WHERE id=$1`, [id])).rows[0]?.data; }
@@ -75,6 +84,7 @@ class PostgresStore implements Store {
 }
 
 const SQLITE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS login_challenges (phone_key TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, phone_key TEXT UNIQUE, data TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS availability_slots (id TEXT PRIMARY KEY, provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE, status TEXT NOT NULL CHECK(status IN ('open','booked','cancelled')), data TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -84,6 +94,7 @@ CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, provider_id TEXT NOT N
 CREATE INDEX IF NOT EXISTS bookings_provider_idx ON bookings(provider_id);
 CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE);`;
 const POSTGRES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS sessions (token_hash text PRIMARY KEY, data jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS login_challenges (phone_key text PRIMARY KEY, data jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS providers (id uuid PRIMARY KEY, phone_key text UNIQUE, data jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS phone_key text;
