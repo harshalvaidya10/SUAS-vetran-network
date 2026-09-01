@@ -33,9 +33,17 @@ Local development uses SQLite automatically. Veteran signups persist in
 `backend/.data/vetnet.sqlite`, so there is no database service to start and `npm run dev` is
 the only startup command. Demo veterans are inserted only when the database is empty.
 
-For a repeatable hackathon demo, set `RESET_DATABASE_ON_START=1` in `backend/.env`. Every API
-restart then clears local SQLite and reloads the demo roster. This flag is deliberately ignored
-on Vercel so it cannot erase Neon data. Set it back to `0` when testing persistence.
+Starting the API never touches the local database, so a veteran you sign up survives file
+saves and restarts. Reseeding is an explicit command:
+
+```bash
+npm run db:reset     # wipe SQLite and lay the demo roster back down
+npm run dev:fresh    # the same, then start both servers
+```
+
+It is a one-shot command rather than a startup flag on purpose: `tsx watch` reloads the app on
+every file save, so a reset that ran at boot would quietly wipe the database each time you
+edited a file — taking any veteran you had signed up mid-session with it.
 
 For Vercel, provision Neon and set `DATABASE_URL` to its PostgreSQL connection string. The API
 then switches to PostgreSQL and creates the same schema automatically on startup. The Docker

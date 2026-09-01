@@ -61,10 +61,6 @@ export function createApp(): Express {
 // data available whether Vercel loads app.ts or index.ts, without reseeding on
 // every request.
 await initializeStore();
-if (config.resetDatabaseOnStart) {
-  await store.reset();
-  console.log('Reset local database for a clean demo startup.');
-}
 if (config.seedDemoData && (await store.listProviders()).length === 0) {
   const { providers, slots } = await seedDemoData();
   console.log(`Seeded ${providers} demo veterans with ${slots} committed slots.`);
