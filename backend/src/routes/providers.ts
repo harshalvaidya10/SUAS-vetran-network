@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
+import { releaseFinishedDemoRides } from '../demoRelease.js';
 import { isServiceTypeId } from '../domain/serviceCatalog.js';
 import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
 import { ApiError } from '../http/errors.js';
@@ -150,6 +151,8 @@ providersRouter.post('/:id/slots', async (req, res) => {
 });
 
 providersRouter.get('/:id/slots', async (req, res) => {
+  // So the dashboard shows blocks that came back when a demo ride finished.
+  await releaseFinishedDemoRides();
   const provider = await requireProvider(req.params.id);
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   if (status && !['open', 'booked', 'cancelled'].includes(status)) {
@@ -179,6 +182,8 @@ providersRouter.delete('/:id/slots/:slotId', async (req, res) => {
 });
 
 providersRouter.get('/:id/bookings', async (req, res) => {
+  // So the dashboard shows blocks that came back when a demo ride finished.
+  await releaseFinishedDemoRides();
   const provider = await requireProvider(req.params.id);
   const bookings = (await store.listBookings({ providerId: provider.id }))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));

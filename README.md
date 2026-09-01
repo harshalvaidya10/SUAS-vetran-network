@@ -33,9 +33,17 @@ Local development uses SQLite automatically. Veteran signups persist in
 `backend/.data/vetnet.sqlite`, so there is no database service to start and `npm run dev` is
 the only startup command. Demo veterans are inserted only when the database is empty.
 
-For a repeatable hackathon demo, set `RESET_DATABASE_ON_START=1` in `backend/.env`. Every API
-restart then clears local SQLite and reloads the demo roster. This flag is deliberately ignored
-on Vercel so it cannot erase Neon data. Set it back to `0` when testing persistence.
+Starting the API never touches the local database, so a veteran you sign up survives file
+saves and restarts. Reseeding is an explicit command:
+
+```bash
+npm run db:reset     # wipe SQLite and lay the demo roster back down
+npm run dev:fresh    # the same, then start both servers
+```
+
+It is a one-shot command rather than a startup flag on purpose: `tsx watch` reloads the app on
+every file save, so a reset that ran at boot would quietly wipe the database each time you
+edited a file — taking any veteran you had signed up mid-session with it.
 
 For Vercel, provision Neon and set `DATABASE_URL` to its PostgreSQL connection string. The API
 then switches to PostgreSQL and creates the same schema automatically on startup. The Docker
@@ -274,20 +282,26 @@ the ranking rules are covered by fast unit tests.
 
 ## Demo mode
 
-`DEMO_REUSABLE_SLOTS` defaults to **on, in every environment including the hosted
-deployment**, because the hosted deployment is what gets demoed. With it on:
+`DEMO_SLOT_RELEASE_MINUTES` defaults to **5**, in every environment including the hosted one,
+because the hosted deployment is what gets demoed. Five minutes after a ride is booked it is
+treated as finished: the booking is completed, the driver's completed-jobs count goes up, and
+the availability block returns to them.
 
-- a booking does **not** consume the veteran's availability block, and
-- a driver already booked at that hour can still be matched.
+The effect is that a demo can fire the same request over and over and keep getting a real
+match, instead of exhausting the roster after one booking each.
 
-So the same request can be fired over and over and keep returning a real driver, instead of
-exhausting the roster after one booking each. `diagnostics.rejections` stops filling with
-`no_open_slot` after the first ride.
+**The locking itself is untouched.** A booking still claims its block atomically via
+`claimOpenSlot`, and a driver already booked at that hour is still excluded by the
+overlapping-booking check. While a ride is live it is genuinely held — two riders can't be
+promised the same veteran. The block simply comes back when the simulated ride is over, which
+is the same end state a driver produces by marking the job done.
 
-The cost is real: the API will double-book an actual person, and two riders can be promised
-the same veteran at the same time. Set `DEMO_REUSABLE_SLOTS=0` the moment this stops being a
-demo — that restores the atomic `claimOpenSlot` and the overlapping-booking check, both of
-which are covered by tests either way. The API warns on start-up which mode it is in.
+The sweep runs lazily on request (matching, and the veteran's own slot/booking views) rather
+than on a timer, because the API runs as serverless functions where a `setTimeout` does not
+outlive the response that scheduled it.
+
+Set `DEMO_SLOT_RELEASE_MINUTES=0` to switch the simulation off, so blocks stay held until
+someone actually completes or cancels the ride. The API logs which mode it is in at start-up.
 
 ## Known gaps before this is real
 
@@ -300,9 +314,10 @@ These are deliberate bootstrap cuts, roughly in the order they should be closed:
    one middleware.
 2. **No veteran auth either.** Anyone who knows a provider id can edit that profile or cancel
    its bookings. The veteran identity is kept in `localStorage`. Needs real accounts + sessions.
-3. **Demo mode double-books.** `DEMO_REUSABLE_SLOTS=1` is the default in every environment,
-   including the hosted one. Bookings do not consume availability and a driver can be promised
-   to two riders at once. Turn it off before real riders use this — see **Demo mode** above.
+3. **Demo rides auto-complete.** `DEMO_SLOT_RELEASE_MINUTES=5` is the default everywhere, so a
+   booking is marked completed five minutes on whether or not the ride happened, and the
+   driver's completed-jobs count rises with it. Locking is honest, but the ride history is
+   not. Set it to 0 before real riders use this — see **Demo mode** above.
 4. **Verification is a config flag.** `AUTO_VERIFY_PROVIDERS=1` marks sign-ups verified so the
    demo works end to end. Real deployments must gate on DD-214 / ID.me before matching anyone,
    and background checks matter for in-home work.

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
+import { releaseFinishedDemoRides } from '../demoRelease.js';
 import { countRecentBookings, findMatches, type MatchCriteria } from '../domain/matching.js';
 import { getServiceType } from '../domain/serviceCatalog.js';
 import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
@@ -100,12 +101,14 @@ export async function handleServiceRequest(req: Request, res: Response) {
   };
 
   const providers = await store.listProviders();
+  // Hand back any block whose simulated ride has finished before matching.
+  await releaseFinishedDemoRides(now);
+
   const result = findMatches(criteria, {
     providers,
     slots: await store.listSlots(),
     bookings: await store.listBookings(),
     recentBookingCounts: countRecentBookings(await store.listBookings(), now),
-    allowSlotReuse: config.demoReusableSlots,
     now,
   });
 
@@ -189,17 +192,12 @@ export async function handleServiceRequest(req: Request, res: Response) {
         slots: await store.listSlots(),
         bookings: currentBookings,
         recentBookingCounts: countRecentBookings(currentBookings, currentNow),
-        allowSlotReuse: config.demoReusableSlots,
-        now: currentNow,
+            now: currentNow,
       },
     ).candidates[0];
     if (!revalidated || revalidated.slot.id !== candidate.slot.id) continue;
-    // Demo mode leaves the block open so the next identical request can match
-    // the same driver again; otherwise the claim is what stops two riders being
-    // promised one veteran.
-    const claimed = config.demoReusableSlots
-      ? revalidated.slot
-      : await store.claimOpenSlot(revalidated.slot.id);
+    // The atomic claim is what stops two riders being promised one veteran.
+    const claimed = await store.claimOpenSlot(revalidated.slot.id);
     if (!claimed) continue;
     chosen = revalidated;
     chosenIndex = index;

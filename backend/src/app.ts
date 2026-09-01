@@ -12,12 +12,12 @@ import { authRouter } from './routes/auth.js';
 import { rideRequestsRouter } from './routes/rideRequests.js';
 
 // Logged at module load so it appears in serverless cold-start logs too, not
-// just the local server. A deployment that silently double-books people should
-// at least say so.
-if (config.demoReusableSlots) {
+// just the local server.
+if (config.demoSlotReleaseMinutes > 0) {
   console.warn(
-    'DEMO MODE: availability blocks are not consumed by a booking, so the same ' +
-      'driver can be matched over and over. Set DEMO_REUSABLE_SLOTS=0 for real behaviour.',
+    `DEMO MODE: a booked ride is treated as finished after ${config.demoSlotReleaseMinutes} ` +
+      'minute(s) and its availability block returns to the driver. Set ' +
+      'DEMO_SLOT_RELEASE_MINUTES=0 to hold blocks until a ride is actually completed.',
   );
 }
 
@@ -61,10 +61,6 @@ export function createApp(): Express {
 // data available whether Vercel loads app.ts or index.ts, without reseeding on
 // every request.
 await initializeStore();
-if (config.resetDatabaseOnStart) {
-  await store.reset();
-  console.log('Reset local database for a clean demo startup.');
-}
 if (config.seedDemoData && (await store.listProviders()).length === 0) {
   const { providers, slots } = await seedDemoData();
   console.log(`Seeded ${providers} demo veterans with ${slots} committed slots.`);

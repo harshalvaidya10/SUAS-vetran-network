@@ -6,6 +6,8 @@
   "main": "dist/local.js",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/local.ts",
+    "dev:fresh": "npm run db:reset && npm run dev",
+    "db:reset": "tsx --env-file-if-exists=.env src/resetDb.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env dist/local.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
