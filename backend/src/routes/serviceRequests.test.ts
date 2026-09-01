@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { createApp } from '../app.js';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
+import { releaseFinishedDemoRides } from '../demoRelease.js';
 
 async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
   const server = createApp().listen(0);
@@ -58,11 +59,6 @@ test('route validates pickup ZIP cleanly', async () => {
 });
 
 test('idempotency and synchronous slot claiming prevent double booking', async () => {
-  // The claim is what stops two riders being promised one veteran, so this
-  // asserts the real behaviour even when the demo default is relaxed.
-  const demo = config.demoReusableSlots;
-  config.demoReusableSlots = false;
-  try {
   await withServer(async (baseUrl) => {
     await store.reset();
     const startsAt = new Date(Date.now() + 2 * 3_600_000);
@@ -120,14 +116,11 @@ test('idempotency and synchronous slot claiming prevent double booking', async (
     assert.equal(competingPayload.booking, null);
     assert.equal((await store.listBookings()).length, 1);
   });
-  } finally {
-    config.demoReusableSlots = demo;
-  }
 });
 
-test('demo mode keeps the block open so the same driver can be matched again', async () => {
-  const demo = config.demoReusableSlots;
-  config.demoReusableSlots = true;
+test('a demo ride finishes on a timer and hands the block back', async () => {
+  const release = config.demoSlotReleaseMinutes;
+  config.demoSlotReleaseMinutes = 5;
   try {
     await withServer(async (baseUrl) => {
       await store.reset();
@@ -166,28 +159,44 @@ test('demo mode keeps the block open so the same driver can be matched again', a
           body: JSON.stringify(body),
         });
 
-      const first = (await (await send('demo-one')).json()) as {
+      const first = (await (await send('ride-one')).json()) as {
         status: string;
         booking: { id: string; providerId: string };
       };
       assert.equal(first.status, 'matched');
 
-      // A brand-new key, so no idempotent replay: this has to be a fresh match.
-      const second = (await (await send('demo-two')).json()) as {
+      // The lock is still real: while the ride is live nobody else gets it.
+      assert.equal((await store.getSlot(slot.id))?.status, 'booked');
+      const blocked = (await (await send('ride-two')).json()) as { status: string };
+      assert.equal(blocked.status, 'no_match', 'block is held while the ride is running');
+
+      // Five minutes on, the ride counts as finished.
+      const released = await releaseFinishedDemoRides(new Date(Date.now() + 6 * 60_000));
+      assert.equal(released, 1);
+      assert.equal((await store.getSlot(slot.id))?.status, 'open', 'block came back');
+      assert.equal((await store.getBooking(first.booking.id))?.status, 'completed');
+      assert.equal((await store.getProvider(provider.id))?.completedJobs, 6, 'ride counted');
+
+      const again = (await (await send('ride-three')).json()) as {
         status: string;
-        replayed?: boolean;
         booking: { id: string; providerId: string };
       };
-      assert.equal(second.status, 'matched');
-      assert.notEqual(second.replayed, true);
-      assert.notEqual(second.booking.id, first.booking.id);
-      assert.equal(second.booking.providerId, first.booking.providerId, 'same driver again');
-
-      assert.equal((await store.listBookings()).length, 2);
-      assert.equal((await store.getSlot(slot.id))?.status, 'open', 'block was never consumed');
+      assert.equal(again.status, 'matched');
+      assert.equal(again.booking.providerId, first.booking.providerId, 'same driver again');
+      assert.notEqual(again.booking.id, first.booking.id);
     });
   } finally {
-    config.demoReusableSlots = demo;
+    config.demoSlotReleaseMinutes = release;
+  }
+});
+
+test('the release is off when the interval is zero', async () => {
+  const release = config.demoSlotReleaseMinutes;
+  config.demoSlotReleaseMinutes = 0;
+  try {
+    assert.equal(await releaseFinishedDemoRides(new Date(Date.now() + 86_400_000)), 0);
+  } finally {
+    config.demoSlotReleaseMinutes = release;
   }
 });
 

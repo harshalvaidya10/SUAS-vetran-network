@@ -49,12 +49,6 @@ export interface MatchContext {
   bookings: Pick<Booking, 'providerId' | 'startsAt' | 'endsAt' | 'status'>[];
   /** providerId -> confirmed/completed rides assigned in the trailing 7 days. */
   recentBookingCounts: Map<string, number>;
-  /**
-   * Demo mode. Booked blocks stay matchable and an existing booking at the same
-   * hour no longer excludes the driver, so the same request can be fired over
-   * and over and keep returning a real driver. Off in any real deployment.
-   */
-  allowSlotReuse?: boolean;
   now?: Date;
 }
 
@@ -220,11 +214,7 @@ export function findMatches(criteria: MatchCriteria, context: MatchContext): Mat
     const providerSlots = context.slots.filter(
       (slot) => slot.providerId === provider.id && slot.serviceTypes.includes(criteria.serviceType),
     );
-    // A cancelled block is always gone. A booked one is still offered in demo
-    // mode, which is what lets a demo rematch the same driver.
-    const openSlots = providerSlots.filter((slot) =>
-      context.allowSlotReuse ? slot.status !== 'cancelled' : slot.status === 'open',
-    );
+    const openSlots = providerSlots.filter((slot) => slot.status === 'open');
     if (openSlots.length === 0) {
       rejections.no_open_slot += 1;
       continue;
@@ -275,10 +265,7 @@ export function findMatches(criteria: MatchCriteria, context: MatchContext): Mat
       continue;
     }
 
-    if (
-      !context.allowSlotReuse &&
-      hasOverlappingBooking(provider.id, requestedStart, requestedEnd, context.bookings)
-    ) {
+    if (hasOverlappingBooking(provider.id, requestedStart, requestedEnd, context.bookings)) {
       rejections.overlapping_booking += 1;
       continue;
     }
