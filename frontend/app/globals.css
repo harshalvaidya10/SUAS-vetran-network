@@ -216,6 +216,16 @@ textarea {
   min-width: 0;
 }
 
+/* A locked field has to look locked, not merely refuse to type. */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--paper);
+  color: var(--ink-soft);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -420,6 +430,100 @@ button.small {
 .bar-fill {
   height: 100%;
   background: var(--olive-dim);
+}
+
+/* --- commitment board -------------------------------------------------- */
+
+.block-group {
+  border-bottom: 1px solid var(--rule);
+}
+
+.block-group:last-child {
+  border-bottom: 0;
+}
+
+/*
+ * A disclosure row, not a button in the visual sense — it has to shed the
+ * global button styling entirely.
+ */
+button.block-head {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+button.block-head:hover:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
+}
+
+button.block-head:hover .block-when > span:first-child {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+button.block-head:active:not(:disabled) {
+  transform: none;
+}
+
+button.block-head:focus-visible {
+  outline: 2px solid var(--olive);
+  outline-offset: 2px;
+}
+
+.caret {
+  width: 0;
+  height: 0;
+  border-left: 6px solid var(--ink-faint);
+  border-top: 4.5px solid transparent;
+  border-bottom: 4.5px solid transparent;
+  transition: transform 0.12s ease;
+  transform-origin: 25% 50%;
+}
+
+.caret.open {
+  transform: rotate(90deg);
+}
+
+.block-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.block-when > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-body {
+  padding: 2px 0 16px 24px;
+  border-left: 1px solid var(--rule);
+  margin-left: 6px;
+}
+
+@media (max-width: 720px) {
+  button.block-head {
+    grid-template-columns: 14px minmax(0, 1fr);
+  }
+  button.block-head > .row {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
 }
 
 .list-reset {
