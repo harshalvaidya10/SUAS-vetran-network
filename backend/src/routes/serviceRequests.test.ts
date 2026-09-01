@@ -253,3 +253,63 @@ test('realtime ride request matches current ZIP and returns vehicle identity', a
     assert.equal(payload.booking.destination.zipCode, '92161');
   });
 });
+
+test('finishing a ride hands the rest of the block back to the driver', async () => {
+  await withServer(async (baseUrl) => {
+    await store.reset();
+    const startsAt = new Date(Date.now() + 2 * 3_600_000);
+    startsAt.setMilliseconds(0);
+    const provider = await store.createProvider({
+      name: 'Driver One',
+      branch: 'army',
+      yearsOfService: 8,
+      bio: '',
+      email: 'driver@example.com',
+      phone: '+1-619-555-0100',
+      base: { lat: 32.719, lng: -117.1628 },
+      zipCode: '92101',
+      serviceRadiusKm: 40,
+      offerings: [{ serviceType: 'rides', rateType: 'volunteer', hourlyRateUsd: 0 }],
+      rating: 4.8,
+      completedJobs: 5,
+      verified: true,
+      active: true,
+    });
+    const slot = await store.createSlot({
+      providerId: provider.id,
+      startsAt: new Date(startsAt.getTime() - 3_600_000).toISOString(),
+      endsAt: new Date(startsAt.getTime() + 2 * 3_600_000).toISOString(),
+      serviceTypes: ['rides'],
+      status: 'open',
+    });
+
+    const booked = (await (
+      await fetch(`${baseUrl}/api/v1/service-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'finish-ride' },
+        body: JSON.stringify(
+          requestBody(startsAt.toISOString(), new Date(startsAt.getTime() + 3_600_000).toISOString()),
+        ),
+      })
+    ).json()) as { booking: { id: string } };
+    assert.equal((await store.getSlot(slot.id))?.status, 'booked');
+
+    // A rider is still waiting, so the block is not the driver's to give up.
+    const blocked = await fetch(`${baseUrl}/api/v1/providers/${provider.id}/slots/${slot.id}`, {
+      method: 'DELETE',
+    });
+    assert.equal(blocked.status, 409);
+
+    await fetch(`${baseUrl}/api/v1/bookings/${booked.booking.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'completed' }),
+    });
+
+    assert.equal((await store.getSlot(slot.id))?.status, 'open', 'block came back');
+    const withdrawn = await fetch(`${baseUrl}/api/v1/providers/${provider.id}/slots/${slot.id}`, {
+      method: 'DELETE',
+    });
+    assert.equal(withdrawn.status, 200, 'and can now be withdrawn');
+  });
+});

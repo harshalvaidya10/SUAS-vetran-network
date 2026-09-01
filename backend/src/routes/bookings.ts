@@ -32,11 +32,15 @@ bookingsRouter.patch('/:id', async (req, res) => {
     if (provider) {
       await store.updateProvider(provider.id, { completedJobs: provider.completedJobs + 1 });
     }
-  } else {
-    const slot = await store.getSlot(booking.slotId);
-    if (slot && slot.status === 'booked' && new Date(slot.endsAt).getTime() > Date.now()) {
-      await store.updateSlot(slot.id, { status: 'open' });
-    }
+  }
+
+  // Either way the ride is over, so the rest of the block goes back to the
+  // driver: still matchable, and withdrawable again. Without this, finishing a
+  // ride left the block held for good -- nobody counting on it, but no way to
+  // give it up either.
+  const slot = await store.getSlot(booking.slotId);
+  if (slot && slot.status === 'booked' && new Date(slot.endsAt).getTime() > Date.now()) {
+    await store.updateSlot(slot.id, { status: 'open' });
   }
 
   res.json({ booking: serializeBooking(updated, await store.getProvider(updated.providerId)) });
