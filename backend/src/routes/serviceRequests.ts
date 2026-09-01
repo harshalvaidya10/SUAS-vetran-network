@@ -8,6 +8,7 @@ import { getServiceType } from '../domain/serviceCatalog.js';
 import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
 import { ApiError } from '../http/errors.js';
 import { parse, serviceRequestSchema } from '../http/validation.js';
+import { requireServiceToken } from '../http/authGuards.js';
 import { serializeBooking, serializeCandidate } from '../http/serialize.js';
 
 const DEFAULT_WINDOW_DAYS = 7;
@@ -254,7 +255,7 @@ export async function handleServiceRequest(req: Request, res: Response) {
   });
 }
 
-serviceRequestsRouter.post('/', handleServiceRequest);
+serviceRequestsRouter.post('/', requireServiceToken, handleServiceRequest);
 
 /** GET /api/v1/service-requests/:id — what happened to an earlier request. */
 serviceRequestsRouter.get('/:id', async (req, res) => {

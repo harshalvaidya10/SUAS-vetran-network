@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { parse, realtimeRideRequestSchema } from '../http/validation.js';
 import { handleServiceRequest } from './serviceRequests.js';
+import { requireServiceToken } from '../http/authGuards.js';
 
 export const rideRequestsRouter: Router = Router();
 
@@ -9,7 +10,7 @@ export const rideRequestsRouter: Router = Router();
  * Realtime rider-client endpoint. The server receipt time is the requested
  * pickup time, so only a veteran committed right now can be booked.
  */
-rideRequestsRouter.post('/', async (req, res) => {
+rideRequestsRouter.post('/', requireServiceToken, async (req, res) => {
   const input = parse(realtimeRideRequestSchema, req.body);
   req.body = {
     serviceType: 'rides',

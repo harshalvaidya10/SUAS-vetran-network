@@ -88,6 +88,18 @@ export interface Booking {
   provider?: Provider;
 }
 
+/**
+ * The signed-in veteran's session token, held in memory only.
+ *
+ * Deliberately not persisted: the session already ends on reload, and a token
+ * in localStorage would outlive it on a shared machine.
+ */
+let sessionToken: string | null = null;
+
+export function setSessionToken(token: string | null) {
+  sessionToken = token;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -106,7 +118,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
       cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        ...(init?.headers ?? {}),
+      },
     });
   } catch {
     throw new ApiError(`Can't reach the API at ${API_BASE}. Is it running?`, 0);

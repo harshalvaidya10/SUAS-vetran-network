@@ -306,6 +306,94 @@ This covers the veteran side only. The separate rider app needs its own equivale
 riders use it — the disclosures about insurance and identity apply just as much to whoever is
 getting in the car.
 
+## API auth
+
+Two layers, matching the two questions that actually matter: **which application
+is calling**, and **which person is acting**.
+
+### Layer 1 — the caller (`API_SERVICE_TOKENS`)
+
+Comma-separated tokens presented as `Authorization: Bearer <token>`, guarding the
+demand side — `POST /api/v1/ride-requests` and `POST /api/v1/service-requests`,
+where an anonymous caller could otherwise book real veterans' committed hours.
+**Empty means the check is off**, which is the local and test default.
+
+It guards the demand side only, on purpose. The veteran site runs in a browser,
+where any token shipped to the client is public — a service token there would be
+security theatre. The rider app runs server-side and can hold a secret.
+
+### Layer 2 — the person (session tokens)
+
+`POST /api/v1/auth/verify-code` and `POST /api/v1/providers` now return
+`session: { token, expiresAt }`. That token is required for every write a veteran
+owns, and must belong to *that* veteran:
+
+| | |
+|---|---|
+| `PATCH /providers/:id` | edit your own profile |
+| `POST /providers/:id/slots` | commit your own hours |
+| `DELETE /providers/:id/slots/:slotId` | withdraw your own block |
+| `PATCH /bookings/:id` | end a ride assigned to you |
+
+Provider ids are listable from the public roster, so without this anyone could
+edit another veteran's profile, withdraw their blocks, or cancel their rides.
+This layer is **always on** — there is no environment where that should be
+allowed. Tokens are stored hashed, expire after `SESSION_TTL_HOURS`, and are held
+in memory by the client only, so a session ends with the page.
+
+Public on purpose: `/health`, `/api/v1/catalog`, the roster, `request-code`,
+`verify-code`, and enrolling (a new veteran has no session yet).
+
+### Sessions and codes in Postgres
+
+The `sessions` and `login_challenges` tables are in `POSTGRES_SCHEMA` as
+`CREATE TABLE IF NOT EXISTS`, and `initializeStore()` runs at module load — the
+same path Vercel takes — so **Neon creates them on the first cold start after a
+deploy.** No migration step.
+
+**Postgres has no row TTL**, and neither does SQLite. `expiresAt` is enforced in
+application code when a row is read, which means a session abandoned after it
+lapsed, or a code that was never submitted, would otherwise sit in the table for
+good. `store.purgeExpired()` deletes both, and runs on `request-code` — the entry
+point to every login — so growth is bounded by the login rate rather than by
+nothing.
+
+If this ever runs at a scale where that sweep is not free, the fix is an index on
+the expiry rather than a cron: `CREATE INDEX ON sessions (((data->>'expiresAt')::timestamptz))`.
+
+### Known limitation: the mocked OTP undercuts layer 2
+
+While `SMS_PROVIDER=mock`, a session can be obtained by anyone who knows an
+enrolled phone number and the fixed `MOCK_OTP_CODE` — and in mock mode
+`verify-code` accepts it without a prior `request-code`, so the cooldown and
+attempt limit do not apply either. Layer 2 authorises correctly, but session
+*issuance* is forgeable, so on the deployed pilot it should be read as a
+speed bump rather than a control.
+
+This is accepted knowingly for the pilot: the group is small and already knows
+each other, and the alternatives all need dashboard access that isn't available
+yet. It stops being acceptable the moment someone outside that group is expected
+to sign in. The fix is a real SMS provider — see **Phone login (OTP)** — and
+`request-code` becoming mandatory rather than optional.
+
+Enrolling is unauthenticated for the same reason: an invite code or a
+platform-level password lock both need Vercel dashboard access.
+
+### Where the VA flow plugs in
+
+Both layers are seams, not stopgaps in the wrong place. Layer 1 becomes per-app
+registration. Layer 2 keeps its shape and only changes where the identity comes
+from — a VA-verified identity instead of a phone code — because everything
+downstream just asks whose session this is.
+
+Two gaps this does **not** close, and should be named rather than assumed:
+
+- **Enrolling is unauthenticated.** Anyone can add themselves to the roster;
+  the pilot terms and manual verification are what stand behind it for now.
+- **A ride request is not tied to a rider.** The service token proves *which app*
+  asked, not *which person*. Binding a booking to an authenticated rider needs a
+  login in the rider app, which is where VA verification does the most work.
+
 ## Phone login (OTP)
 
 Veterans sign in with a code texted to the phone number they enrolled with.
@@ -374,13 +462,12 @@ someone actually completes or cancels the ride. The API logs which mode it is in
 
 These are deliberate bootstrap cuts, roughly in the order they should be closed:
 
-1. **The match endpoint is unauthenticated.** Now that the demand side is a separate app,
-   `POST /api/v1/service-requests` is a public door into the roster: any caller can book real
-   veterans' committed hours, and repeated calls can map out who is available where. The first
-   thing to add is a shared secret the request app sends (`Authorization: Bearer …`), checked in
-   one middleware.
-2. **No veteran auth either.** Anyone who knows a provider id can edit that profile or cancel
-   its bookings. The veteran identity is kept in `localStorage`. Needs real accounts + sessions.
+1. **Login is a fixed code in production.** `SMS_PROVIDER=mock` means a session can be had
+   by anyone who knows an enrolled number, which undercuts the session layer above it. Closing
+   it needs a real SMS provider. Accepted for the pilot; not beyond it.
+2. **A ride request is not tied to a rider.** The service token proves which app asked, not
+   which person. Binding a booking to an authenticated rider needs a login in the rider app,
+   which is where VA verification does the most work.
 3. **Demo rides auto-complete.** `DEMO_SLOT_RELEASE_MINUTES=5` is the default everywhere, so a
    booking is marked completed five minutes on whether or not the ride happened, and the
    driver's completed-jobs count rises with it. Locking is honest, but the ride history is

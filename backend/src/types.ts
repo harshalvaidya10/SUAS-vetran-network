@@ -140,3 +140,18 @@ export interface LoginChallenge {
   /** When we last texted, for the resend cooldown. */
   sentAt: string;
 }
+
+/**
+ * A signed-in veteran. The token is stored hashed, so the table cannot be used
+ * to impersonate anyone even if it leaks.
+ *
+ * Today the identity behind a session comes from a phone code. When VA
+ * verification lands, only how a session is *created* changes — everything
+ * downstream keeps asking "whose session is this?".
+ */
+export interface Session {
+  tokenHash: string;
+  providerId: string;
+  expiresAt: string;
+  createdAt: string;
+}

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { createApp } from '../app.js';
 import { config } from '../config.js';
 import { store } from '../data/store.js';
+import { issueSession } from '../http/authGuards.js';
 import { releaseFinishedDemoRides } from '../demoRelease.js';
 
 async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
@@ -294,21 +295,26 @@ test('finishing a ride hands the rest of the block back to the driver', async ()
     ).json()) as { booking: { id: string } };
     assert.equal((await store.getSlot(slot.id))?.status, 'booked');
 
+    const { token } = await issueSession(provider.id);
+    const signedIn = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+
     // A rider is still waiting, so the block is not the driver's to give up.
     const blocked = await fetch(`${baseUrl}/api/v1/providers/${provider.id}/slots/${slot.id}`, {
       method: 'DELETE',
+      headers: signedIn,
     });
     assert.equal(blocked.status, 409);
 
     await fetch(`${baseUrl}/api/v1/bookings/${booked.booking.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: signedIn,
       body: JSON.stringify({ status: 'completed' }),
     });
 
     assert.equal((await store.getSlot(slot.id))?.status, 'open', 'block came back');
     const withdrawn = await fetch(`${baseUrl}/api/v1/providers/${provider.id}/slots/${slot.id}`, {
       method: 'DELETE',
+      headers: signedIn,
     });
     assert.equal(withdrawn.status, 200, 'and can now be withdrawn');
   });

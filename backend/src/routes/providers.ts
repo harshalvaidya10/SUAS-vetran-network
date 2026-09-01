@@ -10,6 +10,7 @@ import { ApiError } from '../http/errors.js';
 import { providerWithContact, publicProvider, serializeBooking, serializeSlot } from '../http/serialize.js';
 import { parse, providerCreateSchema, providerUpdateSchema, slotCreateSchema } from '../http/validation.js';
 import { normalizePhone } from './auth.js';
+import { issueSession, requireOwnership, requireVeteranSession, type AuthedRequest } from '../http/authGuards.js';
 
 export const providersRouter: Router = Router();
 
@@ -82,7 +83,10 @@ providersRouter.post('/', async (req, res) => {
     throw error;
   }
 
-  res.status(201).json({ provider: providerWithContact(provider) });
+  // Signing up proves nothing about the phone yet, but the veteran needs to be
+  // able to commit their first block without a round trip through a text.
+  const session = await issueSession(provider.id);
+  res.status(201).json({ provider: providerWithContact(provider), session });
 });
 
 /** GET /api/v1/providers?serviceType=rides — the roster. */
@@ -107,8 +111,9 @@ providersRouter.get('/:id', async (req, res) => {
   res.json({ provider: publicProvider(provider), openSlots: slots.map(serializeSlot) });
 });
 
-providersRouter.patch('/:id', async (req, res) => {
+providersRouter.patch('/:id', requireVeteranSession, async (req: AuthedRequest, res) => {
   const provider = await requireProvider(req.params.id);
+  requireOwnership(req, provider.id);
 
   // The phone number identifies the enrolment, so it can't be edited in place.
   // Say so rather than letting the schema drop it and reporting success.
@@ -136,8 +141,9 @@ providersRouter.patch('/:id', async (req, res) => {
  * available, so it can only cover services the veteran actually offers and can't
  * overlap another commitment.
  */
-providersRouter.post('/:id/slots', async (req, res) => {
+providersRouter.post('/:id/slots', requireVeteranSession, async (req: AuthedRequest, res) => {
   const provider = await requireProvider(req.params.id);
+  requireOwnership(req, provider.id);
   const input = parse(slotCreateSchema, req.body);
 
   if (new Date(input.startsAt).getTime() < Date.now()) {
@@ -197,8 +203,9 @@ providersRouter.get('/:id/slots', async (req, res) => {
 });
 
 /** DELETE /api/v1/providers/:id/slots/:slotId — withdraw an unbooked commitment. */
-providersRouter.delete('/:id/slots/:slotId', async (req, res) => {
+providersRouter.delete('/:id/slots/:slotId', requireVeteranSession, async (req: AuthedRequest, res) => {
   const provider = await requireProvider(req.params.id);
+  requireOwnership(req, provider.id);
   const slot = await store.getSlot(String(req.params.slotId));
   if (!slot || slot.providerId !== provider.id) throw ApiError.notFound('No such slot.');
   // What matters is whether a rider is still waiting on it, not the slot's

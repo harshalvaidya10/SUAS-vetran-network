@@ -14,6 +14,19 @@ export const config = {
    */
   autoVerifyProviders: (process.env.AUTO_VERIFY_PROVIDERS ?? '1') !== '0',
   /**
+   * Tokens the machine-to-machine callers present, comma-separated. The rider
+   * app runs server-side and can hold a secret; the veteran site runs in a
+   * browser and cannot, which is why this guards the demand side only.
+   *
+   * Empty means the check is off, which is the local default.
+   */
+  serviceTokens: (process.env.API_SERVICE_TOKENS ?? '')
+    .split(',')
+    .map((token) => token.trim())
+    .filter(Boolean),
+  /** How long a veteran stays signed in after entering their code. */
+  sessionTtlHours: Number(process.env.SESSION_TTL_HOURS ?? 12),
+  /**
    * SMS delivery. `mock` prints the code to the log and always uses
    * `MOCK_OTP_CODE`, so local work and the automated checks need no account.
    * `twilio` sends a real text via Programmable SMS.
