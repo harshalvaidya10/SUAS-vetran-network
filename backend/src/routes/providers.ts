@@ -4,6 +4,7 @@ import { store } from '../data/store.js';
 import { releaseFinishedDemoRides } from '../demoRelease.js';
 import { isServiceTypeId } from '../domain/serviceCatalog.js';
 import { getZipCoordinates, normalizeZipCode } from '../domain/zipGeo.js';
+import { PILOT_TERMS_VERSION } from '../domain/pilotTerms.js';
 import { ApiError } from '../http/errors.js';
 import { providerWithContact, publicProvider, serializeBooking, serializeSlot } from '../http/serialize.js';
 import { parse, providerCreateSchema, providerUpdateSchema, slotCreateSchema } from '../http/validation.js';
@@ -31,6 +32,19 @@ function baseFromZip(zipCode: string) {
   return point;
 }
 
+/**
+ * Records acceptance of the pilot terms, refusing a version we no longer serve
+ * so nobody is enrolled against wording they were never shown.
+ */
+function consentFor(version: string) {
+  if (version !== PILOT_TERMS_VERSION) {
+    throw ApiError.badRequest(
+      'The pilot terms have been updated. Reload the page and read them again before continuing.',
+    );
+  }
+  return { version, acceptedAt: new Date().toISOString() };
+}
+
 /** POST /api/v1/providers — a veteran joins the network. */
 providersRouter.post('/', async (req, res) => {
   const input = parse(providerCreateSchema, req.body);
@@ -47,6 +61,7 @@ providersRouter.post('/', async (req, res) => {
   try {
     provider = await store.createProvider({
       ...input,
+      pilotConsent: consentFor(input.pilotTermsVersion),
       zipCode,
       // An explicit base still wins if a caller sends one; otherwise the ZIP
       // centroid is the origin, and the ZIP is all the sign-up form collects.
@@ -109,6 +124,7 @@ providersRouter.patch('/:id', async (req, res) => {
   const zipCode = patch.zipCode ? normalizeZipCode(patch.zipCode) : null;
   const updated = (await store.updateProvider(provider.id, {
     ...patch,
+    ...(patch.pilotTermsVersion ? { pilotConsent: consentFor(patch.pilotTermsVersion) } : {}),
     ...(zipCode ? { zipCode, base: { ...baseFromZip(zipCode), address: zipCode } } : {}),
   }))!;
   res.json({ provider: providerWithContact(updated) });

@@ -13,8 +13,28 @@ export const config = {
    * network — only verified veterans should ever be matched.
    */
   autoVerifyProviders: (process.env.AUTO_VERIFY_PROVIDERS ?? '1') !== '0',
-  /** Development-only OTP. Replace the mock auth routes with Twilio Verify before production. */
+  /**
+   * SMS delivery. `mock` prints the code to the log and always uses
+   * `MOCK_OTP_CODE`, so local work and the automated checks need no account.
+   * `twilio` sends a real text via Programmable SMS.
+   */
+  smsProvider: (process.env.SMS_PROVIDER ?? 'mock') === 'twilio' ? 'twilio' : 'mock',
+  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? '',
+  twilioFromNumber: process.env.TWILIO_FROM_NUMBER ?? '',
+  /** The predictable code used when `smsProvider` is `mock`. */
   mockOtpCode: process.env.MOCK_OTP_CODE ?? '123456',
+  /** How long a texted code stays valid. */
+  otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES ?? 10),
+  /** Wrong guesses allowed before the code is burned. */
+  otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS ?? 5),
+  /** Seconds a caller must wait before another text goes out. */
+  otpResendCooldownSeconds: Number(process.env.OTP_RESEND_COOLDOWN_SECONDS ?? 30),
+  /**
+   * Key that codes are hashed with. Falls back to a constant so local
+   * development works out of the box; set it in any real deployment.
+   */
+  otpHashSecret: process.env.OTP_HASH_SECRET ?? 'vetnet-local-development-only',
   /**
    * Demo housekeeping: minutes after which a booked ride is treated as finished,
    * completing the booking and handing the availability block back to the

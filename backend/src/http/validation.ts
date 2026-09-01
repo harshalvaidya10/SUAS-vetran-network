@@ -48,6 +48,12 @@ export const providerCreateSchema = z.object({
   base: placeSchema.optional(),
   serviceRadiusKm: z.number().min(1).max(200).default(DEFAULT_SERVICE_RADIUS_KM),
   offerings: z.array(offeringSchema).min(1, 'Pick at least one service you can provide'),
+  /**
+   * The version of the pilot terms the sign-up page displayed. Sent rather than
+   * assumed so the API can refuse a stale page and be sure the veteran saw the
+   * wording it is about to record against them.
+   */
+  pilotTermsVersion: z.string().trim().min(1, 'You need to accept the pilot terms to take part'),
 });
 
 /**
@@ -67,6 +73,8 @@ export const providerUpdateSchema = z
     serviceRadiusKm: z.number().min(1).max(200),
     zipCode: zipCodeSchema,
     offerings: z.array(offeringSchema).min(1),
+    /** Lets someone enrolled before the terms existed accept them. */
+    pilotTermsVersion: z.string().trim().min(1),
   })
   .partial();
 

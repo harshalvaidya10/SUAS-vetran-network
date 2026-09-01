@@ -43,6 +43,15 @@ export interface Provider {
   /** 0-5. New providers start unrated and are treated as 4.5 by the matcher. */
   rating: number | null;
   completedJobs: number;
+  /**
+   * Which version of the pilot terms this veteran accepted, and when. Recorded
+   * rather than merely displayed, so the pilot can show what each person was
+   * asked to agree to.
+   */
+  pilotConsent?: {
+    version: string;
+    acceptedAt: string;
+  };
   /** Manual ID/DD-214 check. Unverified providers are never matched. */
   verified: boolean;
   active: boolean;
@@ -113,4 +122,21 @@ export interface ServiceRequestRecord {
   bookingId?: string;
   candidatesConsidered: number;
   createdAt: string;
+}
+
+/**
+ * A pending phone login. Kept in the database rather than in process memory
+ * because the API runs as serverless functions: the instance that sends the
+ * code is rarely the one that checks it.
+ */
+export interface LoginChallenge {
+  /** Last 10 digits of the phone — the same key the provider table uses. */
+  phoneKey: string;
+  /** The code is hashed; a leaked database row shouldn't hand over logins. */
+  codeHash: string;
+  expiresAt: string;
+  /** Wrong guesses so far, so a 6-digit code can't be brute-forced. */
+  attempts: number;
+  /** When we last texted, for the resend cooldown. */
+  sentAt: string;
 }

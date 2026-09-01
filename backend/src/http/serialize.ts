@@ -30,6 +30,7 @@ export function providerWithContact(provider: Provider) {
     email: provider.email,
     phone: provider.phone,
     vehicle: provider.vehicle ?? null,
+    pilotConsent: provider.pilotConsent ?? null,
   };
 }
 
