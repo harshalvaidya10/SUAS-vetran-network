@@ -738,7 +738,10 @@ function CommitmentBoard({
     const open = isOpen(slot.id);
     const ended = hasEnded(slot.endsAt);
     const live = rides.filter((ride) => ride.status === 'confirmed').length;
-    const withdrawable = slot.status === 'open' && !ended;
+    // Offered whenever nobody is actually waiting on the block, which is the
+    // same rule the API applies -- a block whose rides are all done is still
+    // the driver's to give up.
+    const withdrawable = slot.status !== 'cancelled' && !ended && live === 0;
 
     return (
       <li key={slot.id} className="block-group">

@@ -199,8 +199,16 @@ providersRouter.delete('/:id/slots/:slotId', async (req, res) => {
   const provider = await requireProvider(req.params.id);
   const slot = await store.getSlot(String(req.params.slotId));
   if (!slot || slot.providerId !== provider.id) throw ApiError.notFound('No such slot.');
-  if (slot.status === 'booked') {
-    throw ApiError.conflict('Someone is counting on that slot. Cancel the booking instead.');
+  // What matters is whether a rider is still waiting on it, not the slot's
+  // status: a block whose rides are all finished or cancelled is nobody's
+  // expectation, and blocking on status alone stranded those blocks for good.
+  const committedRides = (await store.listBookings({ providerId: provider.id })).filter(
+    (booking) => booking.slotId === slot.id && booking.status === 'confirmed',
+  );
+  if (committedRides.length > 0) {
+    throw ApiError.conflict(
+      `${committedRides.length === 1 ? 'A rider is' : `${committedRides.length} riders are`} still counting on that block. Cancel the ride first.`,
+    );
   }
 
   const cancelled = (await store.updateSlot(slot.id, { status: 'cancelled' }))!;
